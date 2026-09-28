@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # CI 不需要 Electron 執行檔與瀏覽器
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 型別檢查 + 網頁版建置
+        run: npm run build
+      - name: 單元測試（掉率、練功節奏、交易防複製、安全、存檔遷移…）
+        run: npx vitest run
+      - name: 正式版伺服器建置
+        run: npm run build:server
+      - name: 平衡報表必須與資料一致
+        run: |
+          npx vite-node tools/simulate-leveling.ts > /tmp/leveling-report.md
+          npx vite-node tools/simulate-drops.ts > /tmp/drop-report.md
+          diff -u docs/leveling-report.md /tmp/leveling-report.md
+          diff -u docs/drop-report.md /tmp/drop-report.md
