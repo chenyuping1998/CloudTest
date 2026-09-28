@@ -46,18 +46,29 @@
       </table>
     </div>
 
+    <p class="muted small-note">自選清單儲存在你的瀏覽器中，其他訪客看不到也改不到。</p>
     <div class="grid2">
       <div class="card">
-        <h3>警示設定</h3>
-        <form id="alert-form" class="inline wrap">
-          <input id="alert-code" list="stock-list" placeholder="代號" required style="width:7em">
-          <select id="alert-type"></select>
-          <input id="alert-value" type="number" step="any" placeholder="數值" style="width:7em">
-          <button>新增警示</button>
-        </form>
-        <ul id="alert-list" class="list"></ul>
+        <h3>伺服器警示（管理員） <button id="admin-logout" class="ghost small" type="button">登出</button></h3>
+        <div id="alert-login">
+          <p class="muted">伺服器警示會在盤中自動檢查並推播到管理員的 Telegram，只有管理員可以設定。</p>
+          <p id="admin-disabled" class="muted" hidden>伺服器尚未設定管理員密碼（TWSTOCK_PASSWORD），警示功能停用。</p>
+          <form id="admin-login" class="inline">
+            <input id="admin-pw" type="password" placeholder="管理員密碼" autocomplete="current-password" required>
+            <button>登入</button>
+          </form>
+        </div>
+        <div id="alert-admin" hidden>
+          <form id="alert-form" class="inline wrap">
+            <input id="alert-code" list="stock-list" placeholder="代號" required style="width:7em">
+            <select id="alert-type"></select>
+            <input id="alert-value" type="number" step="any" placeholder="數值" style="width:7em">
+            <button>新增警示</button>
+          </form>
+          <ul id="alert-list" class="list"></ul>
+        </div>
       </div>
-      <div class="card">
+      <div class="card" id="triggered-card" hidden>
         <h3>觸發中的警示 <button id="notify-btn" class="ghost small">開啟桌面通知</button></h3>
         <ul id="triggered-list" class="list"></ul>
       </div>

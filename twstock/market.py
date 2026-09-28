@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import time
 from datetime import date, datetime, timedelta
 from functools import lru_cache
@@ -18,6 +19,7 @@ import requests
 from . import data as D
 
 MARKET_CACHE = D.CACHE_DIR / "market"
+_net_lock = threading.Lock()
 _last_request = 0.0
 
 
@@ -211,6 +213,12 @@ def get_day(market: str, d: date, use_demo: bool = False) -> tuple[pd.DataFrame,
         q, i = _demo_day(d)
         return (q, i) if not q.empty else None
 
+    # 同一時間只允許一個請求去抓全市場資料，避免多位訪客同時選股時併發請求證交所
+    with _net_lock:
+        return _get_day_live(market, d)
+
+
+def _get_day_live(market: str, d: date) -> tuple[pd.DataFrame, pd.DataFrame] | None:
     fetch = {"twse": (_fetch_twse_quotes, _fetch_twse_inst), "tpex": (_fetch_tpex_quotes, _fetch_tpex_inst)}[market]
     out = []
     for kind, fn in zip(("quotes", "inst"), fetch):

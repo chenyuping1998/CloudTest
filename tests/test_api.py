@@ -25,15 +25,31 @@ def test_backtest_and_optimize():
     assert client.post("/api/backtest", json={"code": "2330", "strategy": "nope"}).status_code == 400
 
 
-def test_watchlist_and_alerts():
-    assert client.put("/api/watchlist", json={"codes": ["2330", "2330.TW", "0050"]}).json()["codes"] == ["2330", "0050"]
-    a = client.post("/api/alerts", json={"code": "2330", "type": "price_above", "value": 0.01}).json()
-    snap = client.get("/api/monitor").json()
-    assert [r["code"] for r in snap["rows"]] == ["2330", "0050"]
-    assert any(t["id"] == a["id"] for t in snap["triggered"])
-    client.delete(f"/api/alerts/{a['id']}")
-    assert client.get("/api/monitor").json()["alerts"] == []
-    assert client.post("/api/alerts", json={"code": "2330", "type": "price_above"}).status_code == 400
+def test_quotes_are_public():
+    r = client.get("/api/quotes?codes=2330,2330.TW,0050,")
+    assert r.status_code == 200
+    assert [row["code"] for row in r.json()["rows"]] == ["2330", "0050"]
+    assert client.get("/api/quotes?codes=../x").status_code == 400
+
+
+def test_alerts_require_admin(monkeypatch):
+    from twstock import main
+    # 未設定密碼：非本機一律拒絕
+    monkeypatch.setattr(main, "AUTH_PASSWORD", "")
+    assert client.get("/api/alerts").status_code == 403
+    monkeypatch.setattr(main, "AUTH_PASSWORD", "secret")
+    assert client.get("/api/alerts").status_code == 401
+    assert client.get("/api/alerts", headers={"X-Admin-Password": "wrong"}).status_code == 401
+    assert client.post("/api/alerts", json={"code": "2330", "type": "price_above", "value": 1}).status_code == 401
+    h = {"X-Admin-Password": "secret"}
+    assert client.get("/api/admin/check", headers=h).status_code == 200
+    a = client.post("/api/alerts", json={"code": "2330", "type": "price_above", "value": 0.01}, headers=h).json()
+    d = client.get("/api/alerts", headers=h).json()
+    assert any(t["id"] == a["id"] for t in d["triggered"])
+    assert client.delete(f"/api/alerts/{a['id']}").status_code == 401
+    client.delete(f"/api/alerts/{a['id']}", headers=h)
+    assert client.get("/api/alerts", headers=h).json()["alerts"] == []
+    assert client.post("/api/alerts", json={"code": "2330", "type": "price_above"}, headers=h).status_code == 400
 
 
 def test_screen_endpoint():
@@ -42,13 +58,24 @@ def test_screen_endpoint():
     assert client.post("/api/screen", json={"sort": "bad"}).status_code == 400
 
 
-def test_basic_auth(monkeypatch):
+def test_public_by_default_and_private_mode(monkeypatch):
     from twstock import main
     monkeypatch.setattr(main, "AUTH_PASSWORD", "secret")
+    assert client.get("/api/config").status_code == 200  # 公開
+    monkeypatch.setattr(main, "PRIVATE", True)
     assert client.get("/api/config").status_code == 401
     assert client.get("/api/config", auth=("admin", "wrong")).status_code == 401
     assert client.get("/api/config", auth=("admin", "secret")).status_code == 200
     assert client.get("/healthz").status_code == 200
+
+
+def test_rate_limit(monkeypatch):
+    from twstock import main
+    monkeypatch.setattr(main, "limiter", main.RateLimiter())
+    monkeypatch.setattr(main, "HEAVY_RATE_LIMIT", 2)
+    body = {"days": 3, "sort": "trust_net", "limit": 3}
+    assert [client.post("/api/screen", json=body).status_code for _ in range(3)] == [200, 200, 429]
+    assert client.get("/api/config").status_code == 200  # 一般 API 不受影響
 
 
 def test_notifier_market_hours():

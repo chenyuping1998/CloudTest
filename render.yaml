@@ -10,9 +10,7 @@ services:
     autoDeploy: true
     envVars:
       - key: TWSTOCK_PASSWORD
-        sync: false   # 於 Render 後台填入登入密碼
-      - key: TWSTOCK_USER
-        value: admin
+        sync: false   # 管理員密碼（設定伺服器警示用），網站本身公開不需登入
       - key: TELEGRAM_BOT_TOKEN
         sync: false   # 選填：警示推播
       - key: TELEGRAM_CHAT_ID

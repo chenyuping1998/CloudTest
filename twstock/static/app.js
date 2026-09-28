@@ -19,7 +19,9 @@ const cls = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : '');
 const signed = (v, d = 2) => (v == null ? '—' : `${v > 0 ? '+' : ''}${num(v, d)}`);
 
 async function api(path, opts = {}) {
-  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const headers = { 'Content-Type': 'application/json' };
+  if (typeof admin !== 'undefined' && admin.password) headers['X-Admin-Password'] = admin.password;
+  const res = await fetch(path, { headers, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)) : res.statusText);
   return data;
@@ -80,7 +82,7 @@ function disposeCharts(group) {
 function showTab(name) {
   $$('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   $$('.tab').forEach((s) => s.classList.toggle('active', s.id === `tab-${name}`));
-  localStorage.setItem('tab', name);
+  store.set('tab', name);
   if (name === 'monitor') loadMonitor();
   if (name === 'analysis' && !state.history) loadAnalysis();
 }
@@ -249,51 +251,95 @@ function isMarketOpen() {
   return now.getDay() >= 1 && now.getDay() <= 5 && m >= 9 * 60 && m <= 13 * 60 + 35;
 }
 
+// 自選股存在各訪客自己的瀏覽器（公開網站不共用）
+const DEFAULT_WATCHLIST = ['2330', '2317', '2454', '0050', '2881', '2603'];
+const store = {
+  get(k, fallback, area = localStorage) { try { const v = area.getItem(k); return v == null ? fallback : JSON.parse(v); } catch { return fallback; } },
+  set(k, v, area = localStorage) { try { v == null ? area.removeItem(k) : area.setItem(k, JSON.stringify(v)); } catch { /* 瀏覽器封鎖儲存時忽略 */ } },
+};
+const getWatchlist = () => store.get('watchlist', DEFAULT_WATCHLIST);
+const admin = { password: store.get('adminPw', '', sessionStorage), ok: false };
+
 async function loadMonitor() {
   try {
-    const d = await api('/api/monitor');
-    renderMonitor(d);
+    const d = await api(`/api/quotes?codes=${encodeURIComponent(getWatchlist().join(','))}`);
+    renderWatchlist(d.rows);
     $('#monitor-time').textContent = `更新於 ${new Date().toLocaleTimeString('zh-TW')}${isMarketOpen() ? '（盤中）' : '（非交易時段）'}`;
   } catch (e) { toast(e.message, true); }
+  if (admin.ok) loadAlerts();
 }
 
-function renderMonitor(d) {
-  const sources = new Set(d.rows.map((r) => r.source).filter(Boolean));
+function renderWatchlist(rows) {
+  const sources = new Set(rows.map((r) => r.source).filter(Boolean));
   if (sources.size) setSource(sources.has('demo') ? 'demo' : [...sources][0]);
-  $('#watch-table tbody').innerHTML = d.rows.map((r) => r.error
+  $('#watch-table tbody').innerHTML = rows.map((r) => r.error
     ? `<tr><td>${esc(r.code)}</td><td>${esc(r.name)}</td><td colspan="11" class="muted">${esc(r.error)}</td><td><button class="ghost small" data-del="${esc(r.code)}">移除</button></td></tr>`
     : `<tr class="clickable" data-code="${esc(r.code)}"><td>${esc(r.code)}</td><td>${esc(r.name)}</td><td>${sparkline(r.spark)}</td>
       <td class="${cls(r.change)}"><b>${num(r.price)}</b></td><td class="${cls(r.change)}">${signed(r.change)}</td><td class="${cls(r.change)}">${pct(r.change_pct, 2, 1)}</td>
       <td>${num(r.open)}</td><td>${num(r.high)}</td><td>${num(r.low)}</td><td>${int(r.volume)}</td>
       <td class="${r.rsi >= 70 ? 'up' : r.rsi <= 30 ? 'down' : ''}">${num(r.rsi, 1)}</td><td>${num(r.k, 0)} / ${num(r.d, 0)}</td>
-      <td class="muted">${esc(r.time)}</td><td><button class="ghost small" data-del="${esc(r.code)}">移除</button></td></tr>`).join('');
-
-  const types = state.config.alert_types;
-  $('#alert-list').innerHTML = d.alerts.length ? d.alerts.map((a) => `<li><span><b>${esc(a.code)}</b> ${esc(types[a.type]?.label || a.type)} ${a.value ?? ''}</span><button class="ghost small" data-alert="${a.id}">刪除</button></li>`).join('') : '<li class="muted">尚未設定警示</li>';
-  $('#triggered-list').innerHTML = d.triggered.length ? d.triggered.map((t) => `<li><span><b>${esc(t.code)} ${esc(t.name)}</b>　${esc(t.message)}</span><span class="tag fire">觸發</span></li>`).join('') : '<li class="muted">目前沒有觸發的警示</li>';
-
-  const today = new Date().toDateString();
-  d.triggered.forEach((t) => {
-    const key = `${t.id}-${today}`;
-    if (notified.has(key)) return;
-    notified.add(key);
-    if (window.Notification && Notification.permission === 'granted') new Notification(`${t.code} ${t.name}`, { body: t.message });
-  });
+      <td class="muted">${esc(r.time)}</td><td><button class="ghost small" data-del="${esc(r.code)}">移除</button></td></tr>`).join('')
+    || '<tr><td colspan="14" class="muted">自選清單是空的，從上方加入股票代號</td></tr>';
 }
 
-async function saveWatchlist(codes) {
-  await api('/api/watchlist', { method: 'PUT', body: { codes } });
+// ---- 管理員警示（伺服器端，會推播到 Telegram）
+function renderAdmin() {
+  $('#alert-login').hidden = admin.ok;
+  $('#alert-admin').hidden = !admin.ok;
+  $('#triggered-card').hidden = !admin.ok;
+  $('#admin-logout').hidden = !admin.ok || !state.config.admin_enabled;
+  $('#admin-login').hidden = !state.config.admin_enabled;
+  $('#admin-disabled').hidden = state.config.admin_enabled;
+}
+
+async function tryAdmin(password, quiet = false) {
+  admin.password = password;
+  try {
+    await api('/api/admin/check');
+    admin.ok = true;
+    store.set('adminPw', password || null, sessionStorage);
+    if (!quiet) toast('已登入管理員');
+  } catch (e) {
+    admin.ok = false; admin.password = '';
+    store.set('adminPw', null, sessionStorage);
+    if (!quiet) toast(e.message, true);
+  }
+  renderAdmin();
+  if (admin.ok) loadAlerts();
+}
+
+async function loadAlerts() {
+  try {
+    const d = await api('/api/alerts');
+    const types = state.config.alert_types;
+    $('#alert-list').innerHTML = d.alerts.length ? d.alerts.map((a) => `<li><span><b>${esc(a.code)}</b> ${esc(types[a.type]?.label || a.type)} ${a.value ?? ''}</span><button class="ghost small" data-alert="${a.id}">刪除</button></li>`).join('') : '<li class="muted">尚未設定警示</li>';
+    $('#triggered-list').innerHTML = d.triggered.length ? d.triggered.map((t) => `<li><span><b>${esc(t.code)} ${esc(t.name)}</b>　${esc(t.message)}</span><span class="tag fire">觸發</span></li>`).join('') : '<li class="muted">目前沒有觸發的警示</li>';
+    const today = new Date().toDateString();
+    d.triggered.forEach((t) => {
+      const key = `${t.id}-${today}`;
+      if (notified.has(key)) return;
+      notified.add(key);
+      if (window.Notification && Notification.permission === 'granted') new Notification(`${t.code} ${t.name}`, { body: t.message });
+    });
+  } catch (e) {
+    if (/密碼|管理員/.test(e.message)) { admin.ok = false; renderAdmin(); }
+    toast(e.message, true);
+  }
+}
+
+function saveWatchlist(codes) {
+  store.set('watchlist', [...new Set(codes)]);
   loadMonitor();
 }
 
-async function addToWatch(code) {
-  try {
-    const d = await api('/api/monitor');
-    const codes = d.rows.map((r) => r.code);
-    if (!codes.includes(code)) codes.push(code);
-    await saveWatchlist(codes);
-    toast(`已將 ${code} 加入自選`);
-  } catch (e) { toast(e.message, true); }
+function addToWatch(code) {
+  code = String(code || '').trim().toUpperCase();
+  if (!code) return;
+  const codes = getWatchlist();
+  if (codes.includes(code)) return toast(`${code} 已在自選清單中`);
+  if (codes.length >= 30) return toast('自選清單最多 30 檔', true);
+  saveWatchlist([...codes, code]);
+  toast(`已將 ${code} 加入自選`);
 }
 
 function initMonitor() {
@@ -302,28 +348,26 @@ function initMonitor() {
   const syncValue = () => { $('#alert-value').disabled = !state.config.alert_types[sel.value].needs_value; };
   sel.addEventListener('change', syncValue); syncValue();
 
-  $('#watch-add').addEventListener('submit', (e) => { e.preventDefault(); addToWatch($('#watch-code').value.trim()); $('#watch-code').value = ''; });
-  $('#watch-table').addEventListener('click', async (e) => {
+  $('#watch-add').addEventListener('submit', (e) => { e.preventDefault(); addToWatch($('#watch-code').value); $('#watch-code').value = ''; });
+  $('#watch-table').addEventListener('click', (e) => {
     const del = e.target.closest('[data-del]');
-    if (del) {
-      e.stopPropagation();
-      const codes = $$('#watch-table tbody tr').map((tr) => tr.dataset.code || tr.querySelector('[data-del]')?.dataset.del).filter((c) => c && c !== del.dataset.del);
-      return saveWatchlist(codes);
-    }
+    if (del) { e.stopPropagation(); return saveWatchlist(getWatchlist().filter((c) => c !== del.dataset.del)); }
     const tr = e.target.closest('tr[data-code]');
     if (tr) { showTab('analysis'); loadAnalysis(tr.dataset.code); }
   });
+  $('#admin-login').addEventListener('submit', (e) => { e.preventDefault(); tryAdmin($('#admin-pw').value); $('#admin-pw').value = ''; });
+  $('#admin-logout').addEventListener('click', () => { admin.ok = false; admin.password = ''; store.set('adminPw', null, sessionStorage); renderAdmin(); });
   $('#alert-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const v = $('#alert-value').value;
     try {
       await api('/api/alerts', { method: 'POST', body: { code: $('#alert-code').value.trim(), type: sel.value, value: v === '' ? null : +v } });
-      $('#alert-value').value = ''; loadMonitor();
+      $('#alert-value').value = ''; loadAlerts();
     } catch (err) { toast(err.message, true); }
   });
   $('#alert-list').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-alert]'); if (!b) return;
-    await api(`/api/alerts/${b.dataset.alert}`, { method: 'DELETE' }); loadMonitor();
+    try { await api(`/api/alerts/${b.dataset.alert}`, { method: 'DELETE' }); loadAlerts(); } catch (err) { toast(err.message, true); }
   });
   $('#refresh-now').addEventListener('click', loadMonitor);
   $('#notify-btn').addEventListener('click', async () => {
@@ -333,6 +377,8 @@ function initMonitor() {
   monitorTimer = setInterval(() => {
     if ($('#auto-refresh').checked && isMarketOpen() && $('#tab-monitor').classList.contains('active')) loadMonitor();
   }, 60_000);
+  renderAdmin();
+  tryAdmin(admin.password, true); // 已存的密碼，或本機未設密碼時自動取得管理權限
 }
 
 // ================================================================ 回測
@@ -564,7 +610,7 @@ async function init() {
   });
   $('#cmp-form').addEventListener('submit', (e) => { e.preventDefault(); busy($('#cmp-form button'), runCompare); });
   initAnalysis(); initMonitor(); initBacktest(); initScreener();
-  const tab = new URLSearchParams(location.search).get('tab') || localStorage.getItem('tab') || 'monitor';
+  const tab = new URLSearchParams(location.search).get('tab') || store.get('tab', null) || 'monitor';
   showTab(tab);
   if (tab === 'compare') runCompare();
 }

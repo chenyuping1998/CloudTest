@@ -11,9 +11,7 @@ from . import data as D
 from . import indicators as ind
 from .analysis import _f
 
-WATCHLIST_FILE = D.DATA_DIR / "watchlist.json"
 ALERTS_FILE = D.DATA_DIR / "alerts.json"
-DEFAULT_WATCHLIST = ["2330", "2317", "2454", "0050", "2881", "2603"]
 _lock = threading.Lock()
 
 ALERT_TYPES = {
@@ -45,20 +43,20 @@ def _save(path, obj) -> None:
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=2))
 
 
-def get_watchlist() -> list[str]:
-    return _load(WATCHLIST_FILE, list(DEFAULT_WATCHLIST))
+MAX_CODES = 30
 
 
-def set_watchlist(codes: list[str]) -> list[str]:
+def parse_codes(codes: list[str]) -> list[str]:
+    """正規化、去除重複並限制數量（自選股存在各訪客的瀏覽器中）。"""
     seen, clean = set(), []
     for c in codes:
+        if not c.strip():
+            continue
         c = D.normalize_code(c)
         if c not in seen:
             seen.add(c)
             clean.append(c)
-    with _lock:
-        _save(WATCHLIST_FILE, clean)
-    return clean
+    return clean[:MAX_CODES]
 
 
 def get_alerts() -> list[dict]:
@@ -133,20 +131,24 @@ def evaluate(alert: dict, df: pd.DataFrame, x: pd.DataFrame) -> str | None:
     return None
 
 
-def snapshot() -> dict:
-    codes = get_watchlist()
-    alerts = get_alerts()
+def _load_frame(code: str, rt: dict | None):
+    p = D.get_history(code, years=1)
+    df = _with_realtime(p.df, rt)
+    return p, df, ind.compute_all(df)
+
+
+def quotes(codes: list[str]) -> list[dict]:
+    """自選股報價列表（公開）。"""
+    codes = parse_codes(codes)
     rt_all = D.get_realtime(codes)
-    rows, triggered = [], []
+    rows = []
     for code in codes:
         try:
-            p = D.get_history(code, years=1)
+            p, df, x = _load_frame(code, rt_all.get(code))
         except Exception as e:  # noqa: BLE001
             rows.append({"code": code, "name": D.stock_name(code), "error": str(e)})
             continue
         rt = rt_all.get(code)
-        df = _with_realtime(p.df, rt)
-        x = ind.compute_all(df)
         c = df["close"]
         last = x.iloc[-1]
         price, prev = float(c.iloc[-1]), float(c.iloc[-2])
@@ -158,9 +160,24 @@ def snapshot() -> dict:
             "rsi": _f(last["rsi"]), "k": _f(last["k"]), "d": _f(last["d"]), "ma20": _f(last["ma20"]),
             "spark": [round(float(v), 2) for v in c.iloc[-60:]],
         })
+    return rows
+
+
+def check_alerts() -> dict:
+    """檢查所有警示（管理員專用，背景推播也使用）。"""
+    alerts = get_alerts()
+    codes = sorted({a["code"] for a in alerts})
+    rt_all = D.get_realtime(codes)
+    triggered = []
+    for code in codes:
+        try:
+            p, df, x = _load_frame(code, rt_all.get(code))
+        except Exception:  # noqa: BLE001
+            continue
+        name = (rt_all.get(code) or {}).get("name") or p.name
         for a in alerts:
             if a["code"] == code:
                 msg = evaluate(a, df, x)
                 if msg:
-                    triggered.append({**a, "name": rows[-1]["name"], "message": msg})
-    return {"rows": rows, "alerts": alerts, "triggered": triggered}
+                    triggered.append({**a, "name": name, "message": msg})
+    return {"alerts": alerts, "triggered": triggered}

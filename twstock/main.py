@@ -7,22 +7,32 @@ from __future__ import annotations
 import base64
 import os
 import secrets
+import threading
 import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import analysis, backtest as bt, data as D, indicators as ind, monitor, notifier, screener
 
 STATIC = Path(__file__).parent / "static"
-# 部署到公開網址時請務必設定密碼（HTTP Basic Auth）
+# 預設為公開網站：瀏覽、分析、回測、選股都不需登入。
+# TWSTOCK_PASSWORD 為管理員密碼，只用來保護伺服器端警示（會推播到 Telegram）。
+# 設定 TWSTOCK_PRIVATE=1 則整個網站都需要登入（HTTP Basic Auth）。
 AUTH_USER = os.environ.get("TWSTOCK_USER", "admin")
 AUTH_PASSWORD = os.environ.get("TWSTOCK_PASSWORD", "")
+PRIVATE = os.environ.get("TWSTOCK_PRIVATE", "0") == "1"
+# 每位訪客（IP）每分鐘可呼叫次數；0 = 不限制。選股 / 最佳化會向外部抓大量資料，另外限制。
+RATE_LIMIT = int(os.environ.get("TWSTOCK_RATE_LIMIT", "120"))
+HEAVY_RATE_LIMIT = int(os.environ.get("TWSTOCK_HEAVY_RATE_LIMIT", "6"))
+HEAVY_PATHS = ("/api/screen", "/api/optimize")
+LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 
 
 @asynccontextmanager
@@ -36,19 +46,76 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="台股監控分析回測平台", lifespan=lifespan)
 
 
-@app.middleware("http")
-async def basic_auth(request: Request, call_next):
-    if not AUTH_PASSWORD or request.url.path == "/healthz":
-        return await call_next(request)
+class RateLimiter:
+    """記憶體內的滑動視窗限流（單一伺服器行程適用）。"""
+
+    def __init__(self) -> None:
+        self.hits: dict[tuple[str, str], deque] = defaultdict(deque)
+        self.lock = threading.Lock()
+
+    def allow(self, key: tuple[str, str], limit: int, window: float = 60.0) -> bool:
+        if limit <= 0:
+            return True
+        now = time.monotonic()
+        with self.lock:
+            q = self.hits[key]
+            while q and now - q[0] > window:
+                q.popleft()
+            if len(q) >= limit:
+                return False
+            q.append(now)
+            if len(self.hits) > 10_000:  # 避免記憶體無限成長
+                for k in [k for k, v in self.hits.items() if not v or now - v[-1] > window]:
+                    del self.hits[k]
+            return True
+
+
+limiter = RateLimiter()
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _basic_ok(request: Request) -> bool:
     header = request.headers.get("authorization", "")
-    if header.lower().startswith("basic "):
-        try:
-            user, _, pwd = base64.b64decode(header[6:]).decode().partition(":")
-        except Exception:  # noqa: BLE001
-            user, pwd = "", ""
-        if secrets.compare_digest(user, AUTH_USER) & secrets.compare_digest(pwd, AUTH_PASSWORD):
-            return await call_next(request)
-    return Response("需要登入", status_code=401, headers={"WWW-Authenticate": 'Basic realm="twstock"'})
+    if not header.lower().startswith("basic "):
+        return False
+    try:
+        user, _, pwd = base64.b64decode(header[6:]).decode().partition(":")
+    except Exception:  # noqa: BLE001
+        return False
+    return secrets.compare_digest(user, AUTH_USER) & secrets.compare_digest(pwd, AUTH_PASSWORD)
+
+
+@app.middleware("http")
+async def guard(request: Request, call_next):
+    path = request.url.path
+    if path == "/healthz":
+        return await call_next(request)
+    if PRIVATE and AUTH_PASSWORD and not _basic_ok(request):
+        return Response("需要登入", status_code=401, headers={"WWW-Authenticate": 'Basic realm="twstock"'})
+    if path.startswith("/api/"):
+        ip = _client_ip(request)
+        heavy = path in HEAVY_PATHS
+        if not limiter.allow((ip, "api"), RATE_LIMIT) or (heavy and not limiter.allow((ip, "heavy"), HEAVY_RATE_LIMIT)):
+            msg = "查詢太頻繁，請稍候一分鐘再試" + ("（選股 / 最佳化每分鐘最多 %d 次）" % HEAVY_RATE_LIMIT if heavy else "")
+            return JSONResponse({"detail": msg}, status_code=429, headers={"Retry-After": "60"})
+    return await call_next(request)
+
+
+def require_admin(x_admin_password: str = Header("")) -> None:
+    """管理員驗證：未設定密碼時只允許本機存取（方便本機開發）。"""
+    if not AUTH_PASSWORD:
+        raise HTTPException(403, "伺服器未設定管理員密碼（TWSTOCK_PASSWORD），無法管理警示")
+    if not secrets.compare_digest(x_admin_password.encode(), AUTH_PASSWORD.encode()):
+        raise HTTPException(401, "管理員密碼錯誤")
+
+
+def require_admin_or_local(request: Request, x_admin_password: str = Header("")) -> None:
+    if not AUTH_PASSWORD and _client_ip(request) in LOOPBACK:
+        return
+    require_admin(x_admin_password)
 
 
 @app.get("/healthz")
@@ -72,7 +139,7 @@ def _series(s: pd.Series) -> list:
 @app.get("/api/config")
 def config():
     return {
-        "source": D.SOURCE, "stocks": [{"code": k, "name": v} for k, v in D.STOCK_NAMES.items()],
+        "source": D.SOURCE, "admin_enabled": bool(AUTH_PASSWORD), "stocks": [{"code": k, "name": v} for k, v in D.STOCK_NAMES.items()],
         "strategies": bt.STRATEGIES, "alert_types": monitor.ALERT_TYPES,
         "screener_fields": screener.FIELDS, "screener_technical": screener.TECHNICAL,
     }
@@ -168,31 +235,32 @@ def optimize(req: OptimizeRequest):
 
 # ---------------------------------------------------------------- 監控
 
-class WatchlistBody(BaseModel):
-    codes: list[str]
-
-
 class AlertBody(BaseModel):
     code: str
     type: str
     value: float | None = None
 
 
-@app.get("/api/monitor")
-def monitor_snapshot():
-    return monitor.snapshot()
-
-
-@app.put("/api/watchlist")
-def put_watchlist(body: WatchlistBody):
+@app.get("/api/quotes")
+def get_quotes(codes: str = Query("", description="逗號分隔代號（最多 30 檔）")):
     try:
-        return {"codes": monitor.set_watchlist(body.codes)}
+        return {"rows": monitor.quotes(codes.split(","))}
     except D.DataError as e:
         raise HTTPException(400, str(e)) from e
 
 
+@app.get("/api/admin/check")
+def admin_check(_: None = Depends(require_admin_or_local)):
+    return {"ok": True}
+
+
+@app.get("/api/alerts")
+def list_alerts(_: None = Depends(require_admin_or_local)):
+    return monitor.check_alerts()
+
+
 @app.post("/api/alerts")
-def post_alert(body: AlertBody):
+def post_alert(body: AlertBody, _: None = Depends(require_admin_or_local)):
     try:
         return monitor.add_alert(body.code, body.type, body.value)
     except (ValueError, D.DataError) as e:
@@ -200,7 +268,7 @@ def post_alert(body: AlertBody):
 
 
 @app.delete("/api/alerts/{alert_id}")
-def del_alert(alert_id: str):
+def del_alert(alert_id: str, _: None = Depends(require_admin_or_local)):
     monitor.delete_alert(alert_id)
     return {"ok": True}
 

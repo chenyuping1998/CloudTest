@@ -45,7 +45,7 @@ def check_once() -> list[dict]:
         return []
     today = datetime.now(TZ).strftime("%Y-%m-%d")
     fresh = []
-    for t in monitor.snapshot()["triggered"]:
+    for t in monitor.check_alerts()["triggered"]:
         key = f"{today}:{t['id']}"
         if key in _sent:
             continue
