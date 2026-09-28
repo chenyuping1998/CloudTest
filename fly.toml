@@ -1,0 +1,33 @@
+# Fly.io 部署：fly launch --copy-config --no-deploy && fly volumes create twstock_data --region nrt --size 1
+#              fly secrets set TWSTOCK_PASSWORD=你的密碼 && fly deploy
+app = "twstock"
+primary_region = "nrt"
+
+[build]
+
+[env]
+  TZ = "Asia/Taipei"
+  TWSTOCK_DATA_DIR = "/data"
+  PORT = "8000"
+
+[[mounts]]
+  source = "twstock_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "off"   # 永不休眠，背景警示才能持續運作
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

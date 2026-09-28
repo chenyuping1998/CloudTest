@@ -1,0 +1,23 @@
+# Render Blueprint：在 Render 後台選 New → Blueprint 並指向此 repo 即可部署。
+# 需要付費方案（starter 以上）才會 24 小時不休眠，並可掛載持久化磁碟保存自選股與警示。
+services:
+  - type: web
+    name: twstock
+    runtime: docker
+    plan: starter
+    region: singapore
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: TWSTOCK_PASSWORD
+        sync: false   # 於 Render 後台填入登入密碼
+      - key: TWSTOCK_USER
+        value: admin
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false   # 選填：警示推播
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+    disk:
+      name: twstock-data
+      mountPath: /data
+      sizeGB: 1

@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>台股監控分析平台</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">📈 台股監控分析平台</div>
+  <form id="search-form" class="search">
+    <input id="search-input" list="stock-list" placeholder="輸入股票代號，例如 2330" autocomplete="off">
+    <datalist id="stock-list"></datalist>
+    <button type="submit">查詢</button>
+  </form>
+  <span id="source-badge" class="badge"></span>
+</header>
+
+<nav class="tabs">
+  <button data-tab="monitor" class="active">自選監控</button>
+  <button data-tab="analysis">個股分析</button>
+  <button data-tab="backtest">策略回測</button>
+  <button data-tab="screener">條件選股</button>
+  <button data-tab="compare">走勢比較</button>
+</nav>
+
+<main>
+  <!-- ============================== 自選監控 -->
+  <section id="tab-monitor" class="tab active">
+    <div class="toolbar">
+      <form id="watch-add" class="inline">
+        <input id="watch-code" list="stock-list" placeholder="加入代號" required>
+        <button>加入自選</button>
+      </form>
+      <label class="check"><input type="checkbox" id="auto-refresh" checked> 盤中每 60 秒自動更新</label>
+      <button id="refresh-now" class="ghost">立即更新</button>
+      <span id="monitor-time" class="muted"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="watch-table" class="data">
+        <thead><tr><th>代號</th><th>名稱</th><th>走勢(60日)</th><th>成交</th><th>漲跌</th><th>漲跌幅</th>
+          <th>開</th><th>高</th><th>低</th><th>量(張)</th><th>RSI</th><th>K / D</th><th>更新</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>警示設定</h3>
+        <form id="alert-form" class="inline wrap">
+          <input id="alert-code" list="stock-list" placeholder="代號" required style="width:7em">
+          <select id="alert-type"></select>
+          <input id="alert-value" type="number" step="any" placeholder="數值" style="width:7em">
+          <button>新增警示</button>
+        </form>
+        <ul id="alert-list" class="list"></ul>
+      </div>
+      <div class="card">
+        <h3>觸發中的警示 <button id="notify-btn" class="ghost small">開啟桌面通知</button></h3>
+        <ul id="triggered-list" class="list"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 個股分析 -->
+  <section id="tab-analysis" class="tab">
+    <div id="quote-head" class="quote-head"></div>
+    <div class="toolbar">
+      <div class="seg" id="range-seg">
+        <button data-years="0.5">6月</button><button data-years="1" class="active">1年</button>
+        <button data-years="2">2年</button><button data-years="5">5年</button><button data-years="10">10年</button>
+      </div>
+      <span class="sep"></span>
+      <span id="overlay-checks"></span>
+      <span class="sep"></span>
+      <button id="to-watch" class="ghost">＋自選</button>
+      <button id="to-backtest" class="ghost">回測此股</button>
+    </div>
+    <div class="charts">
+      <div class="chart-label">K 線 <span id="legend-main" class="legend"></span></div>
+      <div id="chart-main" class="chart" style="height:380px"></div>
+      <div class="chart-label">成交量(張)</div>
+      <div id="chart-vol" class="chart" style="height:90px"></div>
+      <div class="chart-label">KD (9,3,3) <span id="legend-kd" class="legend"></span></div>
+      <div id="chart-kd" class="chart" style="height:110px"></div>
+      <div class="chart-label">MACD (12,26,9) <span id="legend-macd" class="legend"></span></div>
+      <div id="chart-macd" class="chart" style="height:110px"></div>
+      <div class="chart-label">RSI (14) <span id="legend-rsi" class="legend"></span></div>
+      <div id="chart-rsi" class="chart" style="height:110px"></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>技術訊號</h3><div id="score"></div><ul id="signal-list" class="list"></ul></div>
+      <div class="card"><h3>區間報酬與統計</h3><div id="stats"></div></div>
+    </div>
+    <div class="card">
+      <h3>三大法人買賣超（近 20 日，張） <span id="inst-source" class="muted"></span></h3>
+      <div class="chart-label"><span class="legend"><span>柱狀：每日三大法人合計</span><span><i style="background:#4c9aff"></i>外資累計</span><span><i style="background:#f59e0b"></i>投信累計</span><span><i style="background:#a78bfa"></i>自營商累計</span></span></div>
+      <div id="chart-inst" class="chart" style="height:200px"></div>
+      <div class="table-wrap"><table id="inst-table" class="data compact"></table></div>
+    </div>
+  </section>
+
+  <!-- ============================== 策略回測 -->
+  <section id="tab-backtest" class="tab">
+    <div class="card">
+      <form id="bt-form" class="form-grid">
+        <label>股票代號<input id="bt-code" list="stock-list" value="2330" required></label>
+        <label>策略<select id="bt-strategy"></select></label>
+        <label>回測期間(年)<input id="bt-years" type="number" value="3" min="0.5" max="15" step="0.5"></label>
+        <label>初始資金<input id="bt-capital" type="number" value="1000000" min="10000" step="10000"></label>
+        <label>手續費折扣<input id="bt-discount" type="number" value="0.6" min="0.1" max="1" step="0.05"></label>
+        <label>交易單位<select id="bt-lot"><option value="1">零股（1 股）</option><option value="1000">整張（1000 股）</option></select></label>
+        <label>停損 %<input id="bt-sl" type="number" min="0" max="99" step="0.5" placeholder="不設定"></label>
+        <label>停利 %<input id="bt-tp" type="number" min="0" step="0.5" placeholder="不設定"></label>
+        <div id="bt-params" class="form-grid sub"></div>
+        <div class="span-all"><p id="bt-desc" class="muted"></p><button>執行回測</button></div>
+      </form>
+    </div>
+    <div id="bt-result" hidden>
+      <div id="bt-title" class="quote-head"></div>
+      <div id="bt-metrics" class="metrics"></div>
+      <div class="card">
+        <div class="chart-label">資產淨值 <span class="legend"><i style="background:var(--accent)"></i>策略 <i style="background:var(--muted)"></i>買進持有</span></div>
+        <div id="bt-equity" class="chart" style="height:280px"></div>
+        <div class="chart-label">回撤 (Drawdown)</div>
+        <div id="bt-dd" class="chart" style="height:110px"></div>
+        <div class="chart-label">買賣點</div>
+        <div id="bt-price" class="chart" style="height:300px"></div>
+      </div>
+      <div class="card">
+        <h3>交易明細</h3>
+        <div class="table-wrap"><table id="bt-trades" class="data compact"></table></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>參數最佳化（格點搜尋）</h3>
+      <p class="muted">以上方設定為基礎，對策略參數做格點搜尋。注意：最佳化結果容易過度擬合，建議搭配不同期間驗證。</p>
+      <div id="opt-grid" class="form-grid"></div>
+      <label class="inline">排序依據
+        <select id="opt-sort"><option value="sharpe">夏普值</option><option value="total_return">總報酬</option>
+          <option value="cagr">年化報酬</option><option value="win_rate">勝率</option></select></label>
+      <button id="opt-run">開始最佳化</button>
+      <div class="table-wrap"><table id="opt-table" class="data compact"></table></div>
+    </div>
+  </section>
+
+  <!-- ============================== 條件選股 -->
+  <section id="tab-screener" class="tab">
+    <div class="screener">
+      <aside class="card">
+        <h3>選股條件</h3>
+        <div class="presets" id="presets"></div>
+        <div class="form-grid tight">
+          <label>市場<select id="sc-market"><option value="twse">上市</option><option value="tpex">上櫃</option></select></label>
+          <label>統計天數<select id="sc-days">
+            <option>1</option><option>3</option><option>5</option><option selected>10</option><option>20</option><option>30</option><option>60</option></select></label>
+        </div>
+        <div id="sc-fields"></div>
+        <h4>技術面（逐檔檢查，較慢）</h4>
+        <div id="sc-tech" class="checks"></div>
+        <h4>排序與數量</h4>
+        <div class="form-grid tight">
+          <label>排序欄位<select id="sc-sort"></select></label>
+          <label>順序<select id="sc-order"><option value="desc">由大到小</option><option value="asc">由小到大</option></select></label>
+          <label>顯示檔數<input id="sc-limit" type="number" value="10" min="1" max="200"></label>
+          <label class="check"><input type="checkbox" id="sc-etf"> 包含 ETF</label>
+        </div>
+        <button id="sc-run" class="wide">開始選股</button>
+      </aside>
+      <div class="card">
+        <div id="sc-summary" class="muted">勾選左側條件後按「開始選股」。首次查詢需向證交所下載每日資料（每日約 2 次請求、間隔 2 秒），之後會使用快取。</div>
+        <div class="table-wrap"><table id="sc-table" class="data"></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== 走勢比較 -->
+  <section id="tab-compare" class="tab">
+    <div class="toolbar">
+      <form id="cmp-form" class="inline">
+        <input id="cmp-codes" value="2330,2317,2454,0050" placeholder="以逗號分隔，最多 8 檔" style="width:22em">
+        <select id="cmp-years"><option value="0.5">6月</option><option value="1" selected>1年</option><option value="3">3年</option><option value="5">5年</option></select>
+        <button>比較</button>
+      </form>
+    </div>
+    <div class="card">
+      <div class="chart-label">累積報酬（起始 = 100） <span id="cmp-legend" class="legend"></span></div>
+      <div id="chart-cmp" class="chart" style="height:420px"></div>
+      <div class="table-wrap"><table id="cmp-table" class="data compact"></table></div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+<footer class="muted">資料來源：Yahoo Finance、臺灣證券交易所、證券櫃檯買賣中心。僅供研究參考，不構成投資建議。圖表：<a href="https://www.tradingview.com/" target="_blank" rel="noopener" style="color:inherit">TradingView Lightweight Charts™</a></footer>
+<script src="/static/app.js"></script>
+</body>
+</html>
