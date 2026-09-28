@@ -16,6 +16,7 @@ npm run sim:drops  # 掉寶平衡報表
 npm run sim:leveling # 練功節奏報表（每級耗時、最佳練功怪）
 npm run art:export # 匯出目前材質與模型清單給美術當範本（art/templates/）
 npm run server     # 連線伺服器 ws://localhost:8787（標題畫面選「連線遊玩」）
+npm run host       # 自己電腦開測試服（網頁 + 連線同一個埠），搭配 Cloudflare Tunnel 給朋友玩
 npm run desktop    # 以 Electron 桌面版執行（有開 Steam 時會自動連上 Steam）
 npm run dist:win   # 打包 Windows 版到 release/win-unpacked（Linux：dist:linux、Mac：dist:mac）
 npm run build      # 產生 dist/

@@ -10,7 +10,8 @@ function account(name: string, extra: Partial<AccountRecord> = {}): AccountRecor
   return { name, character: makeChar(name).serialize(), homestead: initialHomestead(), pity: [], createdAt: 1, lastLogin: 2, ...extra };
 }
 
-describe('PgStorage (real Postgres engine via PGlite)', () => {
+// PGlite 每次啟動要 1.5~2.5 秒（冷快取時更久），預設 5 秒逾時太緊
+describe('PgStorage (real Postgres engine via PGlite)', { timeout: 30_000 }, () => {
   it('migrates, saves and loads accounts, world state and audit log', async () => {
     const db = new PGlite();
     const st = new PgStorage(db as unknown as Queryable);

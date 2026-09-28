@@ -55,13 +55,26 @@ function titleLandscape(): HTMLCanvasElement {
 /** 預設伺服器：透過 HTTPS 開啟網頁版時走同網域的 /ws（Caddy 反向代理）；否則連本機開發伺服器 */
 const DEFAULT_SERVER = location.protocol === 'https:' ? `wss://${location.host}/ws` : `ws://${location.hostname || 'localhost'}:8787`;
 
+/** 上次連的伺服器；Cloudflare 快速通道每次重開網址都會變，記住的舊通道網址直接作廢 */
+function savedServer(): string {
+  const saved = localStorage.getItem('roe:server');
+  if (!saved) return DEFAULT_SERVER;
+  try {
+    const host = new URL(saved).host;
+    if (host.endsWith('.trycloudflare.com') && host !== location.host) return DEFAULT_SERVER;
+  } catch {
+    return DEFAULT_SERVER;
+  }
+  return saved;
+}
+
 function titleScreen(error?: string): void {
   uiEl.replaceChildren();
   const last = BrowserStorage.lastPlayer();
   let mode: 'offline' | 'online' = (localStorage.getItem('roe:mode') as 'online' | null) ?? 'offline';
   const nameIn = h('input', { class: 'input', placeholder: '角色名稱（2~12 字）', maxlength: 12, value: localStorage.getItem('roe:name') ?? last?.name ?? platform.steam?.personaName?.replace(/[^\p{L}\p{N}_]/gu, '').slice(0, 12) ?? '冒險者' });
   const pwIn = h('input', { class: 'input', type: 'password', placeholder: '密碼（至少 4 字）', maxlength: 64 });
-  const serverIn = h('input', { class: 'input wide', value: localStorage.getItem('roe:server') ?? DEFAULT_SERVER });
+  const serverIn = h('input', { class: 'input wide', value: savedServer() });
   const errorEl = h('div', { class: 'title-error' }, error ?? '');
   const body = h('div', { class: 'title-form' });
   const goSteam = async () => {

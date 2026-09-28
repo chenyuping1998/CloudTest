@@ -10,11 +10,13 @@
  *   ALLOW_PASSWORD_LOGIN 設為 0 可關閉帳號密碼登入（只允許 Steam）
  *   MARKET_BOTS          設為 0 關閉交易所機器人
  *   MAX_CONN_PER_IP      同一 IP 最多連線數（預設 5）
- *   TRUST_PROXY          設為 1 時從 X-Forwarded-For 取得真實 IP（放在 Caddy / nginx 後面時）
+ *   TRUST_PROXY          設為 1 時從 CF-Connecting-IP / X-Forwarded-For 取得真實 IP（放在 Caddy / Cloudflare Tunnel 後面時）
+ *   STATIC_DIR           設定後同時提供網頁版用戶端（例如 dist），一個埠搞定網頁 + 連線，Cloudflare Tunnel 測試用
  */
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage } from 'node:http';
-import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMsg, ServerMsg } from '../src/net/protocol';
 import { GameServer, type Conn, type ServerStorage } from '../src/server/GameServer';
@@ -29,6 +31,29 @@ const MAX_MSG_BYTES = 4096;
 const MAX_MSGS_PER_SEC = 40;
 const MAX_CONN_PER_IP = Number(env.MAX_CONN_PER_IP ?? 5);
 const startedAt = Date.now();
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
+  '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.ico': 'image/x-icon',
+};
+
+/** 提供靜態檔案；防止 ../ 跳出目錄 */
+async function serveStatic(root: string, url: string, res: import('node:http').ServerResponse): Promise<void> {
+  const path = decodeURIComponent(url.split('?')[0]);
+  const file = resolve(root, '.' + normalize(path === '/' ? '/index.html' : path));
+  if (file !== root && !file.startsWith(root + sep)) {
+    res.writeHead(403).end();
+    return;
+  }
+  try {
+    const body = await readFile(file);
+    const hashed = file.includes(`${sep}assets${sep}`);
+    res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream', 'cache-control': hashed ? 'public, max-age=31536000, immutable' : 'no-cache' });
+    res.end(body);
+  } catch {
+    res.writeHead(404).end();
+  }
+}
 
 function log(level: 'info' | 'warn' | 'error', msg: string, extra: Record<string, unknown> = {}): void {
   // JSON 格式的日誌，方便丟進 Loki / CloudWatch 等系統
@@ -79,7 +104,9 @@ async function main(): Promise<void> {
 
   const connPerIp = new Map<string, number>();
   const clientIp = (req: IncomingMessage) =>
-    (env.TRUST_PROXY === '1' ? String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() : '') || req.socket.remoteAddress || '?';
+    (env.TRUST_PROXY === '1' ? String(req.headers['cf-connecting-ip'] ?? req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() : '') || req.socket.remoteAddress || '?';
+  const viaProxy = (req: IncomingMessage) => !!(req.headers['x-forwarded-for'] || req.headers['cf-connecting-ip']);
+  const staticRoot = env.STATIC_DIR ? resolve(env.STATIC_DIR) : undefined;
 
   const http = createServer((req, res) => {
     if (req.url === '/health') {
@@ -88,6 +115,11 @@ async function main(): Promise<void> {
       return;
     }
     if (req.url === '/metrics') {
+      // 監控只給本機 / 內網；經由 Caddy、Cloudflare 進來的一律 404
+      if (viaProxy(req)) {
+        res.writeHead(404).end();
+        return;
+      }
       // Prometheus 格式
       const st = game.stats();
       res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' });
@@ -100,6 +132,10 @@ async function main(): Promise<void> {
         `roe_market_volume_total ${st.tradeVolume}`,
         `roe_uptime_seconds ${Math.floor((Date.now() - startedAt) / 1000)}`,
       ].join('\n') + '\n');
+      return;
+    }
+    if (staticRoot && req.url !== '/info' && req.url !== '/metrics') {
+      void serveStatic(staticRoot, req.url ?? '/', res);
       return;
     }
     res.writeHead(200, { 'content-type': 'application/json' });
@@ -172,7 +208,7 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 
-  http.listen(PORT, () => log('info', '餘燼王國伺服器啟動', { port: PORT, storage: kind, steamLogin: steamOn, passwordLogin: passwordOn }));
+  http.listen(PORT, () => log('info', '餘燼王國伺服器啟動', { port: PORT, storage: kind, static: staticRoot ?? null, steamLogin: steamOn, passwordLogin: passwordOn }));
 }
 
 main().catch((e) => {

@@ -15,6 +15,44 @@
    PostgreSQL（帳號、角色存檔、世界狀態、稽核日誌）
 ```
 
+## 0. 快速封測：自己的電腦 + Cloudflare Tunnel（免費）
+
+不用租主機、不用設定路由器，適合找朋友小規模測試。玩家連線期間電腦要保持開機。
+
+**1. 在自己電腦啟動測試伺服器**（需要 Node.js 22 以上）
+
+```bash
+npm install
+npm run host          # 建置後啟動，網頁版 + 連線都在 http://localhost:8787
+```
+
+先自己開 http://localhost:8787 →「連線遊玩」確認能登入。存檔在 `server-data/`。
+
+**2. 安裝 cloudflared**
+
+- Windows：`winget install --id Cloudflare.cloudflared`
+- Mac：`brew install cloudflared`
+- Linux：到 https://github.com/cloudflare/cloudflared/releases 下載
+
+**3. 開通道**（另開一個終端機）
+
+```bash
+cloudflared tunnel --url http://localhost:8787
+```
+
+畫面會出現一個網址，例如 `https://random-words.trycloudflare.com`，把它傳給朋友：
+
+- **網頁版**：直接開這個網址 →「連線遊玩」，伺服器位址會自動填成 `wss://…/ws`
+- **桌面版**：伺服器位址填 `wss://random-words.trycloudflare.com/ws`
+
+注意事項：
+
+- 這種「快速通道」不用註冊，但**每次重開網址都會變**。想要固定網址，註冊免費 Cloudflare 帳號並把網域交給 Cloudflare 管理，改用具名通道（`cloudflared tunnel create`，見 Cloudflare 文件）。
+- `npm run host` 已開啟 `TRUST_PROXY=1`：每個玩家的真實 IP 由 Cloudflare 提供，每 IP 連線數限制才會正常運作。
+  **不要**在沒有通道、直接對外開 port 的情況下使用 `npm run host`（IP 可被偽造）。
+- 經由通道的 `/metrics` 會回 404，只有本機能看。
+- 測試資料在 `server-data/`，封測結束想重來就刪掉這個資料夾。
+
 ## 1. 需求
 
 - 一台 Linux 主機（2 vCPU / 2 GB RAM 足以支撐封閉測試約 200 人同時在線）
@@ -46,7 +84,8 @@ curl https://你的網域/health
 | `ALLOW_PASSWORD_LOGIN` | 1 | 設 0 則只允許 Steam 登入（正式上架建議） |
 | `MARKET_BOTS` | 1 | 交易所 NPC 商人（人少時維持流動性，人多後可關閉） |
 | `MAX_CONN_PER_IP` | 5 | 同一 IP 最多連線數 |
-| `TRUST_PROXY` | — | 設 1 時信任 `X-Forwarded-For`（放在 Caddy 後面必須開） |
+| `TRUST_PROXY` | — | 設 1 時信任 `CF-Connecting-IP` / `X-Forwarded-For`（放在 Caddy 或 Cloudflare Tunnel 後面必須開） |
+| `STATIC_DIR` | — | 設定後伺服器同時提供網頁版用戶端（`npm run host` 會設為 `dist`） |
 
 ## 4. Steam 登入流程
 
