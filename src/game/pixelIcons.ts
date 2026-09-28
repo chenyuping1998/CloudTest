@@ -1,6 +1,6 @@
 /** UI 用的小型像素圖示（12×12），以字元圖定義 */
 const PALETTE: Record<string, string> = {
-  k: '#1a1320', b: '#6b4a2a', B: '#9a6e3a', y: '#e8c050', Y: '#ffe68a', g: '#8d9199', G: '#c9d1dc', r: '#c8302a', R: '#e86a4a',
+  k: '#1a1320', f: '#ff8a20', F: '#ffd24a', c: '#9adfff', C: '#e0f8ff', l: '#ffe860', L: '#fffbd0', h: '#fff4b0', b: '#6b4a2a', B: '#9a6e3a', y: '#e8c050', Y: '#ffe68a', g: '#8d9199', G: '#c9d1dc', r: '#c8302a', R: '#e86a4a',
   w: '#f0ead8', p: '#9a4af0', P: '#d0a0ff', n: '#3a6fd8', N: '#8fb8ff', e: '#5f9a3a', E: '#8fcf5a', s: '#e8b48a',
 };
 
@@ -104,6 +104,102 @@ const ICONS: Record<string, string[]> = {
     '............',
   ],
 };
+
+// ---- 技能圖示（依元素）----
+Object.assign(ICONS, {
+  sk_physical: [
+    '..........kk',
+    '.........kGk',
+    '........kGk.',
+    '.......kGk..',
+    '......kGk...',
+    '.....kGk....',
+    '..k.kGk.....',
+    '..kkGk......',
+    '...kk.......',
+    '..kykk......',
+    '.kyk........',
+    '.kk.........',
+  ],
+  sk_fire: [
+    '.....k......',
+    '....kFk.....',
+    '....kFk..k..',
+    '...kFfFk.kk.',
+    '..kFffFk.kFk',
+    '..kFffrFkFFk',
+    '.kFfrrrfFFk.',
+    '.kFfrrrrfFk.',
+    '.kFfrRRrfFk.',
+    '..kFfRRfFk..',
+    '...kFffFk...',
+    '....kkkk....',
+  ],
+  sk_ice: [
+    '.....kk.....',
+    '..k..kCk..k.',
+    '..kk.kCk.kk.',
+    '...kkcCkkk..',
+    '.kkkccCcckkk',
+    'kCCCCcCcCCCk',
+    '.kkkccCcckkk',
+    '...kkcCkkk..',
+    '..kk.kCk.kk.',
+    '..k..kCk..k.',
+    '.....kCk....',
+    '.....kk.....',
+  ],
+  sk_lightning: [
+    '......kkkk..',
+    '.....kLlk...',
+    '....kLlk....',
+    '...kLlk.....',
+    '..kLlkkkk...',
+    '.kLlllllk...',
+    '..kkkklLk...',
+    '....kLlk....',
+    '...kLlk.....',
+    '..kLlk......',
+    '..kLk.......',
+    '..kk........',
+  ],
+  sk_holy: [
+    '.....kk.....',
+    '....khhk....',
+    '..k.khhk.k..',
+    '.khkkhhkkhk.',
+    '.khhhhhhhhk.',
+    'kkkhhwwhhkkk',
+    'khhhhwwhhhhk',
+    '.kkkhhhhkkk.',
+    '...khhhhk...',
+    '....khhk....',
+    '....khhk....',
+    '.....kk.....',
+  ],
+  sk_gold: ICONS_COIN(),
+  sk_passive: [
+    '....kkkk....',
+    '...kggggk...',
+    '..kgGGGGgk..',
+    '.kgGnnnnGgk.',
+    '.kgGnNNnGgk.',
+    '.kgGnNNnGgk.',
+    '.kgGnnnnGgk.',
+    '..kgGGGGgk..',
+    '...kggggk...',
+    '....kggk....',
+    '.....kk.....',
+    '............',
+  ],
+});
+
+function ICONS_COIN(): string[] {
+  return [
+    '............', '...kkkkkk...', '..kyyyyyyk..', '.kyYYYYYyyk.', '.kyYyykyyyk.', '.kyYykkkyyk.',
+    '.kyYyykyyyk.', '.kyyykkkyyk.', '.kyyyykyyyk.', '..kyyyyyyk..', '...kkkkkk...', '............',
+  ];
+}
 
 const cache = new Map<string, string>();
 

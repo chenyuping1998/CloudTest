@@ -357,3 +357,85 @@ describe('GameServer: achievements', () => {
     expect(a2.of('achievement')).toHaveLength(0);
   });
 });
+
+describe('GameServer: skills', () => {
+  function swordsman(s: ReturnType<typeof setup>, name: string) {
+    const c = s.join(name);
+    const d = s.server.debugPlayer(name)!;
+    d.ch.progression.jobLevel = 10;
+    d.ch.changeJob('swordsman');
+    d.ch.progression.skillPoints = 20;
+    return { c, d };
+  }
+
+  it('learn via message, cast with SP and cooldown, deals damage', () => {
+    const s = setup();
+    const { c, d } = swordsman(s, 'Basher');
+    for (let i = 0; i < 5; i++) s.send(c, { t: 'learnSkill', skill: 'bash' });
+    expect(d.ch.skillLevel('bash')).toBe(5);
+    const wolf = s.server.debugMonsters().find((m) => m.def === 'grey_wolf')!;
+    d.setPos(wolf.x + 1, wolf.z);
+    d.ch.data.sp = 100;
+    s.send(c, { t: 'skill', skill: 'bash', target: wolf.id });
+    s.advance(0.3);
+    expect(c.of('skillUsed').some((m) => m.skill === 'bash')).toBe(true);
+    expect(c.of('fx').some((f) => f.kind === 'skill' && f.text === '重擊')).toBe(true);
+    expect(d.ch.data.sp).toBeLessThan(100);
+    // 冷卻中再施放會被拒絕
+    const spAfter = d.ch.data.sp;
+    s.send(c, { t: 'skill', skill: 'bash', target: wolf.id });
+    s.advance(0.05);
+    expect(d.ch.data.sp).toBe(spAfter);
+  });
+
+  it('area skills hit every monster in range; unlearned skills are refused', () => {
+    const s = setup();
+    const { c, d } = swordsman(s, 'Boomer');
+    s.send(c, { t: 'skill', skill: 'magnum_break' });
+    expect(c.last('log')?.msg).toContain('尚未學會');
+    d.ch.data.skills = { bash: 5, magnum_break: 10 };
+    d.ch.data.stats.str = 99;
+    d.ch.data.stats.dex = 99;
+    d.ch.data.sp = 500;
+    const slimes = s.server.debugMonsters().filter((m) => m.def === 'jelly_slime' && !m.dead);
+    // 站在史萊姆群中間
+    d.setPos(slimes[0].x, slimes[0].z);
+    const near = s.server.debugMonsters().filter((m) => !m.dead && Math.hypot(m.x - slimes[0].x, m.z - slimes[0].z) <= 2.8).length;
+    s.send(c, { t: 'skill', skill: 'magnum_break' });
+    const hits = new Set(c.of('fx').filter((f) => f.kind === 'dmg' && f.color === '#ff8a3a').map((f) => f.target));
+    expect(hits.size).toBe(near);
+  });
+
+  it('gold-costing skills need gold; SP shortage is reported', () => {
+    const s = setup();
+    const c = s.join('Moneybags');
+    const d = s.server.debugPlayer('Moneybags')!;
+    d.ch.progression.jobLevel = 10;
+    d.ch.changeJob('merchant');
+    d.ch.data.skills = { mammonite: 10 };
+    d.ch.data.gold = 100;
+    d.ch.data.sp = 100;
+    const slime = s.server.debugMonsters().find((m) => m.def === 'jelly_slime' && !m.dead)!;
+    d.setPos(slime.x + 1, slime.z);
+    s.send(c, { t: 'skill', skill: 'mammonite', target: slime.id });
+    s.advance(0.3);
+    expect(c.of('log').some((l) => l.msg.includes('金幣不足'))).toBe(true);
+    d.ch.data.gold = 10_000;
+    d.ch.data.sp = 0;
+    s.send(c, { t: 'skill', skill: 'mammonite', target: slime.id });
+    s.advance(0.3);
+    expect(c.of('log').some((l) => l.msg.includes('SP 不足'))).toBe(true);
+  });
+
+  it('second job change through the server grants the achievement', () => {
+    const s = setup();
+    const { c, d } = swordsman(s, 'Veteran');
+    d.ch.progression.jobLevel = 40;
+    s.send(c, { t: 'changeJob', job: 'wizard' });
+    expect(d.ch.data.classId).toBe('swordsman');
+    s.send(c, { t: 'changeJob', job: 'knight' });
+    expect(d.ch.data.classId).toBe('knight');
+    s.advance(0.1);
+    expect(c.of('achievement').some((a) => a.id === 'SECOND_JOB')).toBe(true);
+  });
+});

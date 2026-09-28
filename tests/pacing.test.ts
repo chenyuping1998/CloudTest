@@ -77,7 +77,7 @@ describe('pacing safeguards', () => {
 describe('party pacing', () => {
   it('grouping is rewarded but never makes solo play pointless', async () => {
     const { partyEfficiency } = await import('../src/balance/pacing');
-    for (const lv of [15, 30, 45]) {
+    for (const lv of [15, 30, 45, 60]) {
       for (const n of [2, 3, 6]) {
         const r = partyEfficiency(lv, n);
         expect(r).toBeGreaterThan(0.8);

@@ -62,7 +62,8 @@ export class Panel {
   }
 
   show(): void {
-    this.el.style.display = 'block';
+    // 必須是 flex：視窗內容區靠 flex 佈局限制高度並捲動
+    this.el.style.display = 'flex';
     Panel.bringToFront(this.el);
   }
 

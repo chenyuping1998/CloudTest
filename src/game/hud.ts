@@ -6,12 +6,13 @@ import { listingFee, MARKET_RULES } from '../core/market';
 import { formatPpm } from '../core/rng';
 import { RARITY_INFO, STAT_KEYS, STAT_NAMES, type EquipSlot, type ItemDef, type ItemInstance } from '../core/types';
 import {
-  CLASSES, HOMESTEAD_UPGRADES, ITEM_DB, JOB_CHOICES, MONSTERS, NODE_DB, NPC_SHOP, POOL_DB, RECIPES, STATION_MAX_LEVEL,
+  CLASSES, HOMESTEAD_UPGRADES, ITEM_DB, MONSTERS, NODE_DB, NPC_SHOP, POOL_DB, RECIPES, STATION_MAX_LEVEL,
   STATION_NAMES, stationUpgradeCost,
 } from '../data';
 import { referencePrice } from '../shared/pricing';
 import type { ClientState } from '../client/ClientState';
 import { itemIcon } from './sprites';
+import { SKILL_DB, type SkillDef } from '../data/skills';
 import { pixelIcon } from './pixelIcons';
 import { facePortrait } from './voxel/models';
 import { ask, bar, fmt, h, Panel } from './ui';
@@ -46,6 +47,7 @@ export class Hud {
   private help: Panel;
   private drops: Panel;
   private tradePanel: Panel;
+  private skillsPanel: Panel;
   private chatInput: HTMLInputElement;
   private onlineEl: HTMLSpanElement;
   private partyEl: HTMLDivElement;
@@ -85,6 +87,7 @@ export class Hud {
       { class: 'hud-menu' },
       menuBtn('bag', '背包', 'I', () => this.inv),
       menuBtn('char', '角色', 'S', () => this.stats),
+      menuBtn('sk_physical', '技能', 'K', () => this.skillsPanel),
       menuBtn('home', '家園', 'H', () => this.home),
       menuBtn('book', '掉寶表', 'D', () => this.drops),
       menuBtn('help', '說明', 'F1', () => this.help),
@@ -116,10 +119,11 @@ export class Hud {
     this.market = new Panel(root, '交易所', { x: 360, y: 60, w: 560 });
     this.help = new Panel(root, '遊戲說明', { x: 380, y: 60, w: 520 });
     this.drops = new Panel(root, '怪物掉寶表', { x: 380, y: 60, w: 520 });
+    this.skillsPanel = new Panel(root, '技能', { x: 380, y: 70, w: 520 });
     this.tradePanel = new Panel(root, '交易', { x: 360, y: 90, w: 560 }, () => {
       if (this.cs.trade) this.cs.send({ t: 'tradeCancel' });
     });
-    for (const p of [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.tradePanel]) {
+    for (const p of [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.tradePanel, this.skillsPanel]) {
       p.body.addEventListener('click', () => this.markDirty());
     }
   }
@@ -140,11 +144,11 @@ export class Hud {
   }
 
   anyPanelOpen(): boolean {
-    return [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops].some((p) => p.visible);
+    return [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel].some((p) => p.visible);
   }
 
   closeTopPanel(): boolean {
-    const open = [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops]
+    const open = [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel]
       .filter((p) => p.visible)
       .sort((a, b) => Number(b.el.style.zIndex) - Number(a.el.style.zIndex));
     if (!open.length) return false;
@@ -160,11 +164,13 @@ export class Hud {
   }
 
   key(k: string): void {
-    const map: Record<string, Panel> = { i: this.inv, s: this.stats, h: this.home, d: this.drops, f1: this.help };
+    const map: Record<string, Panel> = { i: this.inv, s: this.stats, h: this.home, d: this.drops, f1: this.help, k: this.skillsPanel };
     const p = map[k];
     if (p) this.toggle(p);
     const idx = ['1', '2', '3', '4'].indexOf(k);
     if (idx >= 0) this.useHotbar(idx);
+    const sidx = ['5', '6', '7', '8'].indexOf(k);
+    if (sidx >= 0) this.useSkillSlot(sidx);
   }
 
   log(msg: string, color = '#ddd'): void {
@@ -237,6 +243,7 @@ export class Hud {
       if (el.innerHTML !== html) el.innerHTML = html;
     });
     const now = performance.now();
+    this.updateCooldowns();
     if (now >= this.nextMinimap) {
       this.nextMinimap = now + 150;
       this.drawMinimap();
@@ -273,6 +280,7 @@ export class Hud {
     if (this.market.visible) this.renderMarket();
     if (this.help.visible) this.renderHelp();
     if (this.drops.visible) this.renderDrops();
+    if (this.skillsPanel.visible) this.renderSkills();
   }
 
   // ------------------------------------------------------------ 多人：聊天、交易
@@ -417,8 +425,20 @@ export class Hud {
       h('div', { class: 'status-row' },
         h('span', { class: 'stat-chip gold' }, h('img', { src: pixelIcon('coin', 2) }), `${fmt(ch.data.gold)}`),
         h('span', { class: `stat-chip${wt > d.maxWeight ? ' warn' : ''}` }, h('img', { src: pixelIcon('weight', 2) }), `${fmt(wt)} / ${fmt(d.maxWeight)}`)),
+      this.buffRow(),
       hint,
     );
+  }
+
+  private buffRow(): HTMLElement | string {
+    const now = Date.now();
+    const buffs = (this.player.data.buffs ?? []).filter((b) => b.until > now);
+    if (!buffs.length) return '';
+    return h('div', { class: 'buff-row' }, ...buffs.map((b) => {
+      const def = SKILL_DB.get(b.id);
+      return h('div', { class: 'buff', title: def ? `${def.name} Lv${b.level}` : b.id },
+        def ? h('img', { src: skillIcon(def) }) : '', h('span', {}, String(Math.ceil((b.until - now) / 1000))));
+    }));
   }
 
   /** Base EXP 條：淺藍色區段表示休息經驗（打怪時加倍） */
@@ -508,6 +528,109 @@ export class Hud {
         return h('div', { class: `hot-slot${n ? '' : ' empty'}`, title: def.name, onclick: () => this.useHotbar(i) },
           h('img', { src: itemIcon(def) }), h('span', { class: 'hot-key' }, String(i + 1)), h('span', { class: 'hot-qty' }, String(n)));
       }),
+      h('div', { class: 'hot-sep' }),
+      ...this.cs.skillBar.map((sid, i) => {
+        const def = sid ? SKILL_DB.get(sid) : undefined;
+        const lv = def ? ch.skillLevel(def.id) : 0;
+        const sp = def && lv ? def.sp?.(lv) ?? 0 : 0;
+        return h('div', {
+          class: `hot-slot skill${def && lv ? '' : ' empty'}${sp > ch.data.sp ? ' nosp' : ''}`,
+          title: def ? `${def.name} Lv${lv}（SP ${sp}）` : '在技能視窗（K）指定快捷技能',
+          'data-skill': sid ?? '',
+          onclick: () => this.useSkillSlot(i),
+        },
+          def ? h('img', { src: skillIcon(def) }) : '',
+          h('div', { class: 'cd-overlay' }),
+          h('span', { class: 'hot-key' }, String(i + 5)),
+          def && lv ? h('span', { class: 'hot-qty' }, String(sp)) : '');
+      }),
+    );
+  }
+
+  /** 每幀更新冷卻遮罩（不重建 DOM） */
+  private updateCooldowns(): void {
+    const now = performance.now();
+    this.hotbar.querySelectorAll<HTMLElement>('.hot-slot.skill').forEach((el) => {
+      const cd = this.cs.cooldowns.get(el.dataset.skill ?? '');
+      const overlay = el.querySelector<HTMLElement>('.cd-overlay');
+      if (!overlay) return;
+      const left = cd ? cd.until - now : 0;
+      if (left > 0) {
+        overlay.style.display = 'block';
+        overlay.style.background = `conic-gradient(rgba(0,0,0,0.65) ${(left / cd!.total) * 360}deg, transparent 0)`;
+        overlay.textContent = left > 1000 ? String(Math.ceil(left / 1000)) : '';
+      } else overlay.style.display = 'none';
+    });
+  }
+
+  private useSkillSlot(i: number): void {
+    const sid = this.cs.skillBar[i];
+    if (sid) this.castSkill(sid);
+  }
+
+  castSkill(id: string): void {
+    const def = SKILL_DB.get(id);
+    if (!def || this.player.skillLevel(id) <= 0) return;
+    const cd = this.cs.cooldowns.get(id);
+    if (cd && cd.until > performance.now()) return;
+    const target = def.target === 'enemy' ? this.world().currentTarget() : undefined;
+    if (def.target === 'enemy' && target === undefined) {
+      this.log('請先點選或靠近目標。', '#f99');
+      return;
+    }
+    this.cs.send({ t: 'skill', skill: id, target });
+  }
+
+  // ------------------------------------------------------------ 技能視窗
+
+  /** 未指定 → 第一個空格；已在第 k 格 → 移到 k+1；已在最後一格 → 取消 */
+  private cycleSkillSlot(id: string): void {
+    const cur = this.cs.skillBar.indexOf(id);
+    if (cur < 0) {
+      const empty = this.cs.skillBar.indexOf(null);
+      this.cs.setSkillSlot(empty >= 0 ? empty : 0, id);
+    } else if (cur < 3) {
+      this.cs.setSkillSlot(cur + 1, id);
+    } else {
+      this.cs.skillBar[cur] = null;
+      this.cs.setSkillSlot(-1, null);
+    }
+  }
+
+  private renderSkills(): void {
+    const ch = this.player;
+    const byClass = new Map<string, SkillDef[]>();
+    for (const s of ch.availableSkills()) byClass.set(s.classId, [...(byClass.get(s.classId) ?? []), s]);
+    const sections = [...byClass].map(([cls, list]) => h('div', {},
+      h('h4', {}, CLASSES[cls as keyof typeof CLASSES].name),
+      ...list.map((s) => {
+        const lv = ch.skillLevel(s.id);
+        const can = ch.canLearn(s.id);
+        const next = Math.max(1, lv);
+        const meta = s.kind === 'active'
+          ? `SP ${s.sp?.(next)}${s.cooldownMs ? ` · 冷卻 ${(s.cooldownMs(next) / 1000).toFixed(1)} 秒` : ''}${s.damage?.aoe ? ` · 範圍 ${s.damage.aoe} 格` : ''}${s.damage?.goldCost ? ` · 金幣 ${s.damage.goldCost(next)}` : ''}`
+          : '被動技能';
+        const slot = this.cs.skillBar.indexOf(s.id);
+        return h('div', { class: `skill-row${lv ? '' : ' unlearned'}` },
+          h('img', { class: 'skill-icon', src: skillIcon(s) }),
+          h('div', { class: 'skill-info' },
+            h('div', {}, h('span', { class: 'skill-name' }, s.name), h('span', { class: 'skill-lv' }, ` Lv ${lv} / ${s.maxLevel}`)),
+            h('div', { class: 'muted small' }, s.desc),
+            h('div', { class: 'small skill-meta' }, meta),
+            s.requires?.length ? h('div', { class: 'small', style: `color:${s.requires.every((r) => ch.skillLevel(r.skill) >= r.level) ? 'var(--ok)' : 'var(--lack)'}` },
+              `需要：${s.requires.map((r) => `${SKILL_DB.get(r.skill)?.name} Lv${r.level}`).join('、')}`) : ''),
+          h('div', { class: 'skill-actions' },
+            h('button', { class: 'btn btn-small btn-primary', disabled: !can.ok, title: can.reason ?? '', onclick: () => this.cs.send({ t: 'learnSkill', skill: s.id }) }, lv ? '升級' : '學習'),
+            s.kind === 'active' && lv
+              ? h('button', { class: 'btn btn-small', title: '指定到快捷鍵 5~8（再按一次換下一格，第 8 格之後取消）', onclick: () => { this.cycleSkillSlot(s.id); this.markDirty(); } },
+                  slot >= 0 ? `快捷 ${slot + 5}` : '設為快捷')
+              : ''),
+        );
+      })));
+    this.skillsPanel.setTitle(`技能（剩餘點數 ${ch.progression.skillPoints}）`);
+    this.skillsPanel.set(
+      h('div', { class: 'muted' }, '每升一級 Job 獲得 1 點技能點。主動技能可以指定到快捷鍵 5~8（再按一次換位置）；有目標的技能會對目前選取或最近的敵人施放。'),
+      ...sections,
     );
   }
 
@@ -687,7 +810,7 @@ export class Hud {
         it ? h('button', { class: 'btn btn-small', onclick: () => this.cs.send({ t: 'unequip', slot }) }, '卸下') : undefined);
     });
     const job = ch.canChangeJob()
-      ? h('div', { class: 'job-change' }, h('b', {}, '轉職：'), ...JOB_CHOICES.map((id) =>
+      ? h('div', { class: 'job-change' }, h('b', {}, ch.classDef.tier === 1 ? '二轉：' : '轉職：'), ...ch.jobChoices().map((id) =>
           h('button', { class: 'btn btn-primary', title: CLASSES[id].desc, onclick: () => void this.changeJob(id) }, CLASSES[id].name)))
       : undefined;
     const ls = ch.data.lifeSkills;
@@ -707,8 +830,8 @@ export class Hud {
     );
   }
 
-  private async changeJob(id: (typeof JOB_CHOICES)[number]): Promise<void> {
-    if (!(await ask(this.root, `確定要轉職為 <b>${CLASSES[id].name}</b> 嗎？<br>${CLASSES[id].desc}<br><span class="muted">轉職後 Job Lv 重設為 1。</span>`, '轉職'))) return;
+  private async changeJob(id: keyof typeof CLASSES): Promise<void> {
+    if (!(await ask(this.root, `確定要轉職為 <b>${CLASSES[id].name}</b> 嗎？<br>${CLASSES[id].desc}<br><span class="muted">轉職後 Job Lv 重設為 1，已學的技能會保留。</span>`, '轉職'))) return;
     this.cs.send({ t: 'changeJob', job: id });
   }
 
@@ -802,7 +925,9 @@ export class Hud {
 
   private renderShop(): void {
     const ch = this.player;
-    const buy = NPC_SHOP.map(({ itemId, price }) => {
+    const discount = Math.min(40, ch.passiveBonus().npcBuyDiscountPct ?? 0);
+    const buy = NPC_SHOP.map(({ itemId, price: listPrice }) => {
+      const price = Math.max(1, Math.floor(listPrice * (1 - discount / 100)));
       const def = getDef(ITEM_DB, itemId);
       const buyN = (n: number) => {
         if (ch.data.gold < price * n) return this.log('金幣不足。', '#f99');
@@ -811,14 +936,14 @@ export class Hud {
       return h('div', { class: 'shop-row' }, this.iconCell(def, undefined), h('span', { class: 'grow' }, def.name), h('span', { class: 'price' }, `${fmt(price)}G`),
         h('button', { class: 'btn btn-small', onclick: () => buyN(1) }, '買 1'), def.stackable ? h('button', { class: 'btn btn-small', onclick: () => buyN(10) }, '買 10') : undefined);
     });
-    const bonus = 1 + (ch.classDef.perks.npcSellBonusPct ?? 0) / 100;
+    const bonus = 1 + ((ch.classDef.perks.npcSellBonusPct ?? 0) + (ch.passiveBonus().npcSellPct ?? 0)) / 100;
     const sell = ch.inventory.items.filter((i) => !i.bound && getDef(ITEM_DB, i.defId).bind !== 'bound').map((it) => {
       const def = getDef(ITEM_DB, it.defId);
       return h('div', { class: 'shop-row' }, this.iconCell(def, it), h('span', { class: 'grow', style: `color:${RARITY_INFO[def.rarity].color}` }, `${itemDisplayName(def, it)} x${it.qty}`),
         h('span', { class: 'price' }, `${fmt(Math.floor(def.sellPrice * bonus))}G/個`),
         h('button', { class: 'btn btn-small', onclick: () => this.cs.send({ t: 'npcSell', uid: it.uid, qty: it.qty }) }, '全部賣出'));
     });
-    this.shop.set(h('h4', {}, '購買'), ...buy, h('h4', {}, `賣出${bonus > 1 ? `（商人加成 +${Math.round((bonus - 1) * 100)}%）` : ''}`), h('div', { class: 'scroll-list' }, ...sell));
+    this.shop.set(h('h4', {}, `購買${discount ? `（折價 -${discount}%）` : ''}`), ...buy, h('h4', {}, `賣出${bonus > 1 ? `（商人加成 +${Math.round((bonus - 1) * 100)}%）` : ''}`), h('div', { class: 'scroll-list' }, ...sell));
   }
 
   private renderMarket(): void {
@@ -913,6 +1038,10 @@ export class Hud {
   }
 }
 
+function skillIcon(def: SkillDef): string {
+  return pixelIcon(def.kind === 'passive' ? 'sk_passive' : `sk_${def.element ?? 'physical'}`, 3);
+}
+
 function typeName(def: ItemDef): string {
   if (def.slot) return SLOT_NAMES[def.slot];
   return { weapon: '武器', armor: '防具', accessory: '飾品', consumable: '消耗品', material: '材料', card: `卡片（${def.cardTarget ? SLOT_NAMES[def.cardTarget] : ''}）`, scroll: '卷軸', tool: '工具' }[def.type];
@@ -931,11 +1060,12 @@ const HELP_HTML = `
 <ul>
 <li><b>左鍵</b>地面：移動　·　<b>左鍵</b>怪物：自動攻擊　·　<b>左鍵</b>地上物品：撿取</li>
 <li><b>右鍵拖曳</b>：旋轉視角　·　<b>滾輪</b>：縮放</li>
-<li><b>Z</b> 撿取附近物品　·　<b>空白鍵</b> 攻擊最近的怪物　·　<b>1~4</b> 快捷藥水</li>
-<li><b>I</b> 背包　·　<b>S</b> 角色　·　<b>H</b> 家園　·　<b>D</b> 掉寶表　·　<b>Esc</b> 關閉視窗</li>
+<li><b>Z</b> 撿取附近物品　·　<b>空白鍵</b> 攻擊最近的怪物　·　<b>1~4</b> 快捷藥水　·　<b>5~8</b> 快捷技能</li>
+<li><b>I</b> 背包　·　<b>S</b> 角色　·　<b>K</b> 技能　·　<b>H</b> 家園　·　<b>D</b> 掉寶表　·　<b>Enter</b> 聊天　·　<b>Esc</b> 關閉視窗</li>
 </ul>
 <h4>冒險</h4>
-<p>擊敗怪物獲得 Base / Job 經驗值。升級獲得素質點，Job Lv 10 可以轉職（劍士、弓箭手、魔法師、商人）。
+<p>擊敗怪物獲得 Base / Job 經驗值。升級獲得素質點，Job Lv 10 可以轉職（劍士、弓箭手、魔法師、商人），
+一轉 Job Lv 40 可以二轉（騎士、獵人、巫師、鐵匠）。每升一級 Job 得到 1 點技能點，按 <b>K</b> 學習技能。
 東南方的骸骨巫妖王是 <b style="color:#ff9f1a">MVP</b>，每小時重生一次，擊敗者可獲得 MVP 專屬獎勵。</p>
 <h4>寶物與交易</h4>
 <p>每樣掉落物都獨立計算機率，稀有度以顏色區分：<span style="color:#e8e8e8">普通</span>、<span style="color:#5fd35f">優良</span>、<span style="color:#4aa3ff">稀有</span>、<span style="color:#b366ff">史詩</span>、<span style="color:#ff9f1a">傳說</span>、<span style="color:#ff4d6d">神話</span>。

@@ -131,7 +131,7 @@ export interface Recipe {
 
 export function craftSuccessRate(recipe: Recipe, ch: Character): number {
   const skill = ch.data.lifeSkills[recipe.skill].level;
-  const bonus = (skill - recipe.skillReq) * 0.02 + (ch.classDef.perks.craftSuccessBonusPct ?? 0) / 100;
+  const bonus = (skill - recipe.skillReq) * 0.02 + ((ch.classDef.perks.craftSuccessBonusPct ?? 0) + (ch.passiveBonus().craftPct ?? 0)) / 100;
   return Math.min(1, recipe.baseSuccess + bonus);
 }
 

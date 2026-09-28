@@ -110,7 +110,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'grey_wolf', name: '灰狼', level: 10, hp: 320, atk: 30, def: 6, hit: 28, flee: 18, baseExp: 84, jobExp: 60,
+    id: 'grey_wolf', name: '灰狼', level: 10, hp: 320, atk: 30, def: 6, hit: 28, flee: 18, baseExp: 57, jobExp: 41,
     speed: 2.6, attacksPerSec: 0.9, aggressive: true, respawnSec: 15,
     look: { color: '#8a8f99', shape: 'beast', scale: 1.1 },
     drops: {
@@ -127,7 +127,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'goblin', name: '哥布林戰士', level: 15, hp: 540, atk: 48, def: 10, hit: 40, flee: 22, baseExp: 130, jobExp: 94,
+    id: 'goblin', name: '哥布林戰士', level: 15, hp: 540, atk: 48, def: 10, hit: 40, flee: 22, baseExp: 73, jobExp: 53,
     speed: 2, attacksPerSec: 0.9, aggressive: false, respawnSec: 15,
     look: { color: '#5aa45a', shape: 'humanoid', scale: 1 },
     drops: {
@@ -145,7 +145,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'skeleton', name: '骷髏士兵', level: 22, hp: 950, atk: 75, def: 18, hit: 60, flee: 30, baseExp: 155, jobExp: 112,
+    id: 'skeleton', name: '骷髏士兵', level: 22, hp: 950, atk: 75, def: 18, hit: 60, flee: 30, baseExp: 86, jobExp: 62,
     speed: 1.8, attacksPerSec: 1, aggressive: true, respawnSec: 20,
     look: { color: '#e8e2cf', shape: 'humanoid', scale: 1.1 },
     drops: {
@@ -164,7 +164,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'rock_golem', name: '岩石魔像', level: 30, hp: 2100, atk: 110, def: 40, hit: 75, flee: 20, baseExp: 180, jobExp: 130,
+    id: 'rock_golem', name: '岩石魔像', level: 30, hp: 2100, atk: 110, def: 40, hit: 75, flee: 20, baseExp: 110, jobExp: 79,
     speed: 1.1, attacksPerSec: 0.7, aggressive: false, respawnSec: 30,
     look: { color: '#8c7b6b', shape: 'golem', scale: 1.5 },
     drops: {
@@ -182,7 +182,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'shadow_knight', name: '暗影騎士', level: 37, hp: 2600, atk: 150, def: 45, hit: 100, flee: 45, baseExp: 196, jobExp: 141,
+    id: 'shadow_knight', name: '暗影騎士', level: 37, hp: 2600, atk: 150, def: 45, hit: 100, flee: 45, baseExp: 114, jobExp: 82,
     speed: 2, attacksPerSec: 1, aggressive: true, respawnSec: 25,
     look: { color: '#3a3448', shape: 'humanoid', scale: 1.15 },
     drops: {
@@ -199,7 +199,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'magma_golem', name: '熔岩巨像', level: 44, hp: 4200, atk: 190, def: 60, hit: 110, flee: 25, baseExp: 258, jobExp: 186,
+    id: 'magma_golem', name: '熔岩巨像', level: 44, hp: 4200, atk: 190, def: 60, hit: 110, flee: 25, baseExp: 92, jobExp: 66,
     speed: 1.2, attacksPerSec: 0.8, aggressive: false, respawnSec: 35,
     look: { color: '#5a3a30', shape: 'golem', scale: 1.6 },
     drops: {
@@ -240,7 +240,7 @@ export const MONSTERS: MonsterDef[] = [
   },
   // ======================= 霜語山脈（Lv 50~70） =======================
   {
-    id: 'snow_wolf', name: '雪原狼', level: 50, hp: 3800, atk: 220, def: 45, hit: 140, flee: 70, baseExp: 211, jobExp: 152,
+    id: 'snow_wolf', name: '雪原狼', level: 50, hp: 3800, atk: 220, def: 45, hit: 140, flee: 70, baseExp: 75, jobExp: 54,
     speed: 2.8, attacksPerSec: 1.1, aggressive: true, respawnSec: 20,
     look: { color: '#e8eef4', shape: 'beast', scale: 1.2 },
     drops: {
@@ -255,7 +255,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'ice_slime', name: '冰晶史萊姆', level: 52, hp: 5200, atk: 200, def: 70, hit: 120, flee: 30, baseExp: 240, jobExp: 173,
+    id: 'ice_slime', name: '冰晶史萊姆', level: 52, hp: 5200, atk: 200, def: 70, hit: 120, flee: 30, baseExp: 94, jobExp: 68,
     speed: 1.4, attacksPerSec: 0.8, aggressive: false, respawnSec: 20,
     look: { color: '#9cd8ff', shape: 'slime', scale: 1.2 },
     drops: {
@@ -270,7 +270,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'yeti', name: '雪人', level: 56, hp: 7500, atk: 260, def: 65, hit: 150, flee: 50, baseExp: 328, jobExp: 236,
+    id: 'yeti', name: '雪人', level: 56, hp: 7500, atk: 260, def: 65, hit: 150, flee: 50, baseExp: 122, jobExp: 88,
     speed: 1.8, attacksPerSec: 0.9, aggressive: false, respawnSec: 30,
     look: { color: '#f0f4f8', shape: 'golem', scale: 1.4 },
     drops: {
@@ -285,7 +285,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'frost_skeleton', name: '霜寒骷髏法師', level: 61, hp: 7000, atk: 300, def: 55, hit: 170, flee: 80, baseExp: 278, jobExp: 200,
+    id: 'frost_skeleton', name: '霜寒骷髏法師', level: 61, hp: 7000, atk: 300, def: 55, hit: 170, flee: 80, baseExp: 101, jobExp: 73,
     speed: 1.6, attacksPerSec: 1, aggressive: true, respawnSec: 25,
     look: { color: '#cfe4f4', shape: 'humanoid', scale: 1.15 },
     drops: {
@@ -302,7 +302,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'frost_giant', name: '冰霜巨人', level: 66, hp: 13000, atk: 360, def: 90, hit: 170, flee: 40, baseExp: 460, jobExp: 331,
+    id: 'frost_giant', name: '冰霜巨人', level: 66, hp: 13000, atk: 360, def: 90, hit: 170, flee: 40, baseExp: 179, jobExp: 129,
     speed: 1.2, attacksPerSec: 0.7, aggressive: false, respawnSec: 40,
     look: { color: '#8ab8e0', shape: 'golem', scale: 1.9 },
     drops: {

@@ -11,6 +11,7 @@ export interface AchievementDef {
 export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'FIRST_BLOOD', name: '初次討伐', desc: '擊敗第一隻怪物。' },
   { id: 'JOB_CHANGE', name: '踏上旅途', desc: '完成轉職。' },
+  { id: 'SECOND_JOB', name: '更上一層樓', desc: '完成二轉。' },
   { id: 'LEVEL_30', name: '獨當一面', desc: 'Base 等級達到 30。' },
   { id: 'LEVEL_50', name: '身經百戰', desc: 'Base 等級達到 50。' },
   { id: 'LEVEL_70', name: '傳奇冒險者', desc: 'Base 等級達到 70。' },

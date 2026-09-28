@@ -378,6 +378,22 @@ export const CLASS_LOOKS: Record<ClassId, HumanoidLook> = {
     key: 'mage', skin: SKIN, hair: '#c0c0d0', shirt: '#3a2f7b', pants: '#2a2a4a', shoes: '#1a1a2a', weapon: 'staff', hat: 'wizard', hatColor: '#3a2f7b',
     shirtDetail: (g) => { g.rect(3, 0, 2, g.h, '#d9b44a'); },
   },
+  knight: {
+    key: 'knight', skin: SKIN, hair: '#3b2a1a', shirt: '#c8d0dc', pants: '#5a6272', shoes: '#2a2a2a', weapon: 'sword', hat: 'helmet', hatColor: '#dfe6ef',
+    shirtDetail: (g) => { g.rect(0, 0, g.w, 3, '#eef2f8'); g.rect(2, 3, 4, 7, '#2a4a9a'); g.rect(3, 4, 2, 5, '#e8c050'); g.rect(0, 10, g.w, 2, '#8a6a2a'); },
+  },
+  hunter: {
+    key: 'hunter', skin: SKIN, hair: '#8a4a1a', shirt: '#2f5a2a', pants: '#5a3a1a', shoes: '#2a1a0a', weapon: 'bow', hat: 'hood', hatColor: '#2a4a24',
+    shirtDetail: (g) => { for (let i = 0; i < 8; i++) g.px(i, i + 2, '#b89060'); g.rect(0, 9, g.w, 1, '#6a4a2a'); g.px(6, 1, '#e8e8e8'); },
+  },
+  wizard: {
+    key: 'wizard', skin: SKIN, hair: '#e8e8f0', shirt: '#2a1a4a', pants: '#1a1030', shoes: '#0a0818', weapon: 'staff', hat: 'wizard', hatColor: '#2a1a4a',
+    shirtDetail: (g) => { g.rect(0, 0, g.w, 2, '#e8c050'); g.rect(3, 2, 2, g.h - 2, '#e8c050'); g.px(1, 6, '#9a6af0'); g.px(6, 6, '#9a6af0'); },
+  },
+  blacksmith: {
+    key: 'blacksmith', skin: SKIN, hair: '#5a2a1a', shirt: '#7a4a2a', pants: '#3a2a1a', shoes: '#1a1208', weapon: 'sword', hat: 'cap', hatColor: '#9a3a2a',
+    shirtDetail: (g) => { g.rect(1, 2, 6, 10, '#4a3020'); g.rect(1, 2, 6, 1, '#2a1a10'); g.px(4, 6, '#c0c0c0'); },
+  },
   merchant: {
     key: 'merchant', skin: SKIN, hair: '#2b2b2b', shirt: '#e0e0d0', pants: '#5a4a3a', shoes: '#3a2a1a', weapon: 'none', hat: 'cap', hatColor: '#b8733b',
     shirtDetail: (g) => { g.rect(1, 4, 6, 8, '#b8733b'); g.px(2, 7, '#ffd24a'); },

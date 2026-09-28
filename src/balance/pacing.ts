@@ -17,6 +17,7 @@ import { defReduction, hitChance } from '../core/combat';
 import { enchantAtkBonus } from '../core/enchant';
 import { createItem, getDef, UidGen } from '../core/items';
 import { baseExpToNext, expLevelModifier, jobExpToNext, JOB_CHANGE_LEVEL, MAX_BASE_LEVEL, MAX_JOB_LEVEL, statRaiseCost } from '../core/leveling';
+import { SECOND_JOB_LEVEL } from '../data/classes';
 import type { StatKey } from '../core/types';
 import { ITEM_DB, MONSTERS } from '../data';
 import { partyBonus } from '../core/party';
@@ -54,7 +55,28 @@ const GEAR_BY_LEVEL: { lv: number; weapon: string; enchant: number; armor: strin
 /** 近戰劍士的配點比例（依序投點，每點依 RO 公式計價） */
 const BUILD: [StatKey, number][] = [['str', 0.38], ['agi', 0.27], ['dex', 0.2], ['vit', 0.15]];
 
-export function simulatedCharacter(level: number, jobLevel: number, classId: 'novice' | 'swordsman'): Character {
+export type SimClass = 'novice' | 'swordsman' | 'knight';
+
+/** 模擬用的技能點分配順序（劍士 → 騎士路線；只學目前職業學得到的） */
+const SKILL_BUILD: [string, number][] = [
+  ['bash', 5], ['sword_mastery', 10], ['bash', 10], ['magnum_break', 3], ['endure', 5],
+  ['two_hand_mastery', 10], ['aura_blade', 5], ['whirlwind', 10], ['pierce', 10], ['endure', 10], ['magnum_break', 10],
+];
+
+export function skillPointsAt(classId: SimClass, jobLevel: number): number {
+  if (classId === 'novice') return jobLevel - 1;
+  if (classId === 'swordsman') return 9 + jobLevel - 1;
+  return 9 + (SECOND_JOB_LEVEL - 1) + jobLevel - 1;
+}
+
+/** 依等級估計一般玩家的職業進度（與 simulateLeveling 的實際結果相符，用於校準） */
+export function typicalProgress(level: number): { classId: SimClass; jobLevel: number } {
+  if (level <= 10) return { classId: 'novice', jobLevel: Math.min(9, level) };
+  if (level <= 42) return { classId: 'swordsman', jobLevel: Math.min(SECOND_JOB_LEVEL, level - 10) };
+  return { classId: 'knight', jobLevel: Math.min(MAX_JOB_LEVEL, level - 41) };
+}
+
+export function simulatedCharacter(level: number, jobLevel: number, classId: SimClass): Character {
   const uids = new UidGen('sim');
   const ch = newCharacter('sim', ITEM_DB, uids);
   ch.data.classId = classId;
@@ -73,6 +95,11 @@ export function simulatedCharacter(level: number, jobLevel: number, classId: 'no
     spent[key] += cost;
     ch.data.stats[key]++;
   }
+  // 技能
+  ch.data.progression.skillPoints = skillPointsAt(classId, jobLevel);
+  for (const [id, target] of SKILL_BUILD) {
+    while (ch.skillLevel(id) < target && ch.canLearn(id).ok) ch.learnSkill(id);
+  }
   const gear = [...GEAR_BY_LEVEL].reverse().find((g) => g.lv <= level)!;
   ch.data.equipment = {};
   for (const id of [gear.weapon, ...gear.armor]) {
@@ -81,7 +108,11 @@ export function simulatedCharacter(level: number, jobLevel: number, classId: 'no
     if (def.slot === 'weapon') it.enchant = gear.enchant;
     ch.data.equipment[def.slot!] = it;
   }
-  const d = ch.derived();
+  // 假設增益技能一直維持（持續時間 = 冷卻時間，SP 成本相對很低）
+  for (const sk of ch.availableSkills()) {
+    if (sk.buff && ch.skillLevel(sk.id) > 0) ch.addBuff(sk.id, ch.skillLevel(sk.id), Number.MAX_SAFE_INTEGER);
+  }
+  const d = ch.derived(0);
   ch.data.hp = d.maxHp;
   void enchantAtkBonus;
   return ch;
@@ -106,22 +137,47 @@ function expectedDamage(atk: number, hit: number, critPct: number, targetDef: nu
 }
 
 export function estimateFight(ch: Character, m: MonsterDef, opts: PacingOptions): FightEstimate {
-  const d = ch.derived();
-  const pDps = expectedDamage(d.atk, d.hit, d.critPct, m.def, m.flee) * d.attacksPerSec;
-  const ttk = m.hp / pDps;
+  const d = ch.derived(0);
+  const autoHit = expectedDamage(d.atk, d.hit, d.critPct, m.def, m.flee);
+  const autoDps = autoHit * d.attacksPerSec;
   const mDps = expectedDamage(m.atk, m.hit, 1, d.def, d.flee) * m.attacksPerSec;
-  const hpLoss = mDps * ttk;
   // 脫戰回血：每 2 秒 3% 最大 HP + VIT/5（與伺服器相同）
   const regenPerSec = (d.maxHp * 0.03 + d.totalStats.vit / 5) / 2;
-  const restSec = hpLoss / regenPerSec;
-  const cycle = ttk + restSec + opts.searchSec;
+
+  // 技能：選出讓擊殺循環最短的主力技能；使用次數受「冷卻」與「SP 回復量」限制
+  const candidates: { extra: number; cost: number; cdSec: number }[] = [{ extra: 0, cost: Infinity, cdSec: Infinity }];
+  for (const sk of ch.availableSkills()) {
+    const lv = ch.skillLevel(sk.id);
+    if (lv <= 0 || !sk.damage || sk.target === 'self') continue;
+    const dm = sk.damage;
+    const perHit = dm.type === 'magic'
+      ? d.matk * dm.mul(lv) * defReduction(m.def / 2)
+      : hitChance(d.hit + (dm.hitBonus ?? 0), m.flee) * d.atk * dm.mul(lv) * (dm.ignoreDef ? 1 : defReduction(m.def));
+    candidates.push({ extra: perHit * (dm.hits ?? 1) - autoHit, cost: sk.sp!(lv), cdSec: (sk.cooldownMs?.(lv) ?? 0) / 1000 });
+  }
+  let best: { ttk: number; rest: number; hpLoss: number } | undefined;
+  for (const c of candidates) {
+    let ttk = m.hp / autoDps;
+    let rest = 0;
+    let hpLoss = 0;
+    for (let iter = 0; iter < 8; iter++) {
+      hpLoss = mDps * ttk;
+      rest = hpLoss / regenPerSec;
+      const spGain = Math.min(d.maxSp, d.maxSp * (0.005 * ttk + 0.015 * (rest + opts.searchSec)));
+      const uses = c.cost === Infinity ? 0 : Math.max(0, Math.min(1 + ttk / Math.max(c.cdSec, 0.1), spGain / c.cost));
+      ttk = Math.max((m.hp - uses * c.extra) / autoDps, uses / d.attacksPerSec, 0.3);
+    }
+    if (!best || ttk + rest < best.ttk + best.rest) best = { ttk, rest, hpLoss };
+  }
+  const { ttk, rest, hpLoss } = best!;
+  const cycle = ttk + rest + opts.searchSec;
   const mod = expLevelModifier(ch.progression.baseLevel, m.level);
   const kph = (3600 / cycle) * opts.efficiency;
   return {
     monster: m,
     ttkSec: ttk,
     hpLossPerKill: hpLoss / d.maxHp,
-    restSec,
+    restSec: rest,
     cycleSec: cycle,
     baseExpPerHour: kph * m.baseExp * mod,
     jobExpPerHour: kph * m.jobExp * mod,
@@ -144,7 +200,7 @@ export function simulateLeveling(maxLevel = MAX_BASE_LEVEL, opts: PacingOptions 
   let cumulative = 0;
   let jobLevel = 1;
   let jobExp = 0;
-  let classId: 'novice' | 'swordsman' = 'novice';
+  let classId: SimClass = 'novice';
   for (let lv = 1; lv < maxLevel; lv++) {
     const ch = simulatedCharacter(lv, jobLevel, classId);
     const fights = MONSTERS.map((m) => estimateFight(ch, m, opts)).filter((f) => f.viable);
@@ -156,8 +212,8 @@ export function simulateLeveling(maxLevel = MAX_BASE_LEVEL, opts: PacingOptions 
     while (jobLevel < MAX_JOB_LEVEL && jobExp >= jobExpToNext(jobLevel)) {
       jobExp -= jobExpToNext(jobLevel);
       jobLevel++;
-      if (classId === 'novice' && jobLevel >= JOB_CHANGE_LEVEL) {
-        classId = 'swordsman';
+      if ((classId === 'novice' && jobLevel >= JOB_CHANGE_LEVEL) || (classId === 'swordsman' && jobLevel >= SECOND_JOB_LEVEL)) {
+        classId = classId === 'novice' ? 'swordsman' : 'knight';
         jobLevel = 1;
         jobExp = 0;
       }
@@ -226,8 +282,8 @@ export const JOB_EXP_RATIO = 0.72;
  */
 export function suggestMonsterExp(m: MonsterDef, opts: PacingOptions = DEFAULT_PACING): { baseExp: number; jobExp: number; refLevel: number; cycleSec: number } {
   const refLevel = Math.max(1, m.level + 2);
-  const cls = refLevel >= 11 ? 'swordsman' : 'novice';
-  const ch = simulatedCharacter(refLevel, cls === 'novice' ? Math.min(9, refLevel) : Math.min(50, refLevel - 10), cls);
+  const prog = typicalProgress(refLevel);
+  const ch = simulatedCharacter(refLevel, prog.jobLevel, prog.classId);
   const f = estimateFight(ch, m, opts);
   const killsPerHour = (3600 / f.cycleSec) * opts.efficiency;
   const baseExp = Math.max(1, Math.round((targetExpPerHour(refLevel) / killsPerHour / expLevelModifier(refLevel, m.level)) * CALIBRATION_FACTOR));
@@ -242,8 +298,8 @@ export function suggestMonsterExp(m: MonsterDef, opts: PacingOptions = DEFAULT_P
  * 經驗平分並有人數加成。找怪時間仍是瓶頸，所以人越多邊際效益越低（符合地圖密度的限制）。
  */
 export function partyEfficiency(level: number, size: number, opts: PacingOptions = DEFAULT_PACING): number {
-  const cls = level >= 11 ? 'swordsman' : 'novice';
-  const ch = simulatedCharacter(level, cls === 'novice' ? Math.min(9, level) : Math.min(50, level - 10), cls);
+  const prog = typicalProgress(level);
+  const ch = simulatedCharacter(level, prog.jobLevel, prog.classId);
   let bestSolo = 0;
   let bestParty = 0;
   for (const m of MONSTERS) {

@@ -23,6 +23,29 @@ export class ClientState {
   party: PartyView | null = null;
   tradeInvites: string[] = [];
   onlinePlayers: string[] = [];
+  /** 技能冷卻結束時間（本機 performance.now） */
+  cooldowns = new Map<string, { until: number; total: number }>();
+  /** 技能快捷列（第 5~8 格），存在本機設定 */
+  skillBar: (string | null)[] = ClientState.loadSkillBar();
+
+  private static loadSkillBar(): (string | null)[] {
+    try {
+      const raw = JSON.parse(localStorage.getItem('roe:skillbar') ?? '[]');
+      if (Array.isArray(raw)) return [0, 1, 2, 3].map((i) => (typeof raw[i] === 'string' ? raw[i] : null));
+    } catch {
+      /* ignore */
+    }
+    return [null, null, null, null];
+  }
+
+  setSkillSlot(slot: number, skill: string | null): void {
+    this.skillBar = this.skillBar.map((s, i) => (i === slot ? skill : s === skill ? null : s));
+    try {
+      localStorage.setItem('roe:skillbar', JSON.stringify(this.skillBar));
+    } catch {
+      /* ignore */
+    }
+  }
   private uids = new UidGen('client');
 
   constructor(readonly net: Connection) {}

@@ -169,6 +169,9 @@ function startGame(conn: Connection, name: string, password: string | undefined,
       return;
     }
     switch (msg.t) {
+      case 'skillUsed':
+        cs.cooldowns.set(msg.skill, { until: performance.now() + msg.cooldownMs, total: Math.max(1, msg.cooldownMs) });
+        break;
       case 'achievement':
         hud.achievement(msg.name, msg.desc);
         platform.unlockAchievement(msg.id);

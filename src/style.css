@@ -168,7 +168,7 @@ h4::after { content: ''; flex: 1; height: 2px; background: linear-gradient(90deg
 .minimap-canvas { display: block; width: 180px; height: 180px; border: 2px solid #000; box-shadow: 0 0 0 1px var(--gold-lo); border-radius: 50%; image-rendering: pixelated; }
 
 /* ---------- 訊息框 ---------- */
-.hud-logbox { position: fixed; left: 12px; bottom: 12px; width: 470px; padding: 6px 8px 8px; }
+.hud-logbox { position: fixed; left: 12px; bottom: 12px; width: 420px; padding: 6px 8px 8px; }
 .logbox-title { color: var(--gold); font-size: 12px; padding-bottom: 3px; border-bottom: 1px solid var(--line); margin-bottom: 3px; }
 .hud-log { height: 148px; overflow-y: auto; }
 .log-line { padding: 1px 0; text-shadow: 1px 1px 0 #000; }
@@ -233,7 +233,7 @@ h4::after { content: ''; flex: 1; height: 2px; background: linear-gradient(90deg
   box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.3);
 }
 .panel-close:hover { filter: brightness(1.25); }
-.panel-body { padding: 12px; overflow-y: auto; }
+.panel-body { padding: 12px; overflow-y: auto; min-height: 0; flex: 1 1 auto; }
 .tabs { display: flex; gap: 3px; margin-bottom: 8px; border-bottom: 2px solid var(--gold-lo); }
 .tab {
   background: var(--slate-3); color: var(--muted); border: 2px solid var(--line); border-bottom: none; padding: 4px 12px; cursor: pointer;
@@ -373,3 +373,21 @@ b { font-weight: normal; }
 .achievement-icon { font-size: 28px; }
 .achievement-title { color: var(--gold-hi); text-shadow: 1px 1px 0 #000; }
 @keyframes achIn { 0% { transform: translateX(120%); } 8%, 88% { transform: none; opacity: 1; } 100% { transform: translateX(120%); opacity: 0; } }
+
+/* ---------- 技能 ---------- */
+.hot-sep { width: 6px; }
+.hot-slot.skill img { width: 36px; height: 36px; margin: 6px; }
+.hot-slot.skill.nosp img { filter: grayscale(0.8) brightness(0.6); }
+.cd-overlay { position: absolute; inset: 0; display: none; color: #fff; text-align: center; line-height: 48px; font-size: 24px; text-shadow: 2px 2px 0 #000; }
+.skill-row { display: flex; gap: 10px; align-items: center; padding: 6px; margin: 4px 0; background: var(--slate-3); border: 2px solid #000; box-shadow: 0 0 0 1px var(--line); }
+.skill-row.unlearned { opacity: 0.7; }
+.skill-icon { width: 36px; height: 36px; background: #1d1826; border: 2px solid #000; padding: 1px; }
+.skill-info { flex: 1; }
+.skill-name { color: var(--gold-hi); }
+.skill-lv { color: var(--ink-dim); }
+.skill-meta { color: #9fe0ff; }
+.skill-actions { display: flex; flex-direction: column; gap: 4px; }
+.buff-row { display: flex; gap: 4px; flex-wrap: wrap; }
+.buff { position: relative; width: 28px; height: 28px; background: var(--slate-3); border: 1px solid var(--gold-lo); }
+.buff img { width: 24px; height: 24px; margin: 1px; }
+.buff span { position: absolute; right: 1px; bottom: -2px; font-size: 12px; text-shadow: 1px 1px 0 #000, -1px -1px 0 #000; }

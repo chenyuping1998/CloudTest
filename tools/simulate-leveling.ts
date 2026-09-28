@@ -13,7 +13,7 @@ console.log('| Lv | 升級所需經驗 | 最佳練功怪 | 擊殺秒數 | 每隻
 console.log('|---|---|---|---|---|---|---|---|---|');
 for (const r of rows) {
   if (r.level > 50 && r.level % 5 !== 0) continue;
-  console.log(`| ${r.level} | ${baseExpToNext(r.level).toLocaleString()} | ${r.best.monster.name} Lv${r.best.monster.level} | ${r.best.ttkSec.toFixed(1)} | ${Math.round(r.best.hpLossPerKill * 100)}% | ${Math.round(r.best.baseExpPerHour).toLocaleString()} | ${fmtH(r.hoursThisLevel)} | ${fmtH(r.cumulativeHours)} | ${r.classId === 'novice' ? '初心者' : '劍士'} ${r.jobLevel} |`);
+  console.log(`| ${r.level} | ${baseExpToNext(r.level).toLocaleString()} | ${r.best.monster.name} Lv${r.best.monster.level} | ${r.best.ttkSec.toFixed(1)} | ${Math.round(r.best.hpLossPerKill * 100)}% | ${Math.round(r.best.baseExpPerHour).toLocaleString()} | ${fmtH(r.hoursThisLevel)} | ${fmtH(r.cumulativeHours)} | ${({ novice: '初心者', swordsman: '劍士', knight: '騎士' } as Record<string, string>)[r.classId]} ${r.jobLevel} |`);
 }
 console.log(`\n## 目標檢查（目標曲線 ±${PACING_TOLERANCE * 100}%，現有內容上限 Lv ${CONTENT_LEVEL_CAP}）\n`);
 console.log('| 等級 | 模擬 | 目標 | 差距 | 結果 | 說明 |');

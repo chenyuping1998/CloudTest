@@ -2,7 +2,7 @@
  * 組隊規則（RO 式）
  * - 最多 6 人。
  * - 均分模式：同地圖、距離擊殺點 25 格內、且全隊等級差 ≤ 15 的成員平分經驗，
- *   每多一位成員全隊總經驗 +12%（組隊誘因，但不會讓單練變得沒意義）。
+ *   每多一位成員全隊總經驗 +15%（組隊誘因，但不會讓單練變得沒意義）。
  * - 各自模式：依各自造成的傷害比例取得（與單人相同）。
  * - 掉寶優先權屬於整個隊伍。
  */
@@ -11,7 +11,7 @@ export type ShareMode = 'even' | 'each';
 export const PARTY_MAX = 6;
 export const PARTY_LEVEL_RANGE = 15;
 export const PARTY_SHARE_DISTANCE = 25;
-export const PARTY_BONUS_PER_MEMBER = 0.12;
+export const PARTY_BONUS_PER_MEMBER = 0.15;
 
 export function partyBonus(members: number): number {
   return 1 + PARTY_BONUS_PER_MEMBER * Math.max(0, members - 1);

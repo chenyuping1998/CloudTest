@@ -332,6 +332,13 @@ export class World {
       case 'chips':
         this.particles(at, new THREE.Color(f.color ?? '#888').getHex(), 6, 0.1, 2, 600, true);
         return;
+      case 'skill':
+        this.skillEffect(new THREE.Vector3(f.x, this.groundY(f.x, f.z), f.z), f.color ?? '#fff', f.radius ?? 0, f.element ?? 'physical');
+        if (f.caster !== undefined) {
+          const c = this.players.get(f.caster);
+          if (c) this.ev.floatText(c.pos.clone().setY(c.pos.y + c.rig.height + 0.9), f.text ?? '', '#ffe680');
+        }
+        return;
       default:
         if (f.text) this.ev.floatText(at, f.text, f.color ?? '#fff', f.kind === 'crit' || f.kind === 'levelup');
     }
@@ -555,6 +562,26 @@ export class World {
     if (best) this.cs.send({ t: 'pickup', id: best.id });
   }
 
+  /** 技能目標：已鎖定的怪 → 滑鼠指著的怪 → 身邊最近的怪 */
+  currentTarget(): number | undefined {
+    if (this.targetId !== undefined && !this.monsters.get(this.targetId)?.dead) return this.targetId;
+    if (this.hovered?.type === 'monster') return this.hovered.id;
+    const me = this.me();
+    if (!me) return undefined;
+    let best: MonsterView | undefined;
+    let bd = 10;
+    for (const m of this.monsters.values()) {
+      if (m.dead) continue;
+      const d = m.pos.distanceTo(me.pos);
+      if (d < bd) {
+        bd = d;
+        best = m;
+      }
+    }
+    if (best) this.targetId = best.id;
+    return best?.id;
+  }
+
   attackNearest(): void {
     const me = this.me();
     if (!me) return;
@@ -675,6 +702,33 @@ export class World {
     });
     mats.forEach((m) => m.emissive.setRGB(0.6, 0, 0));
     setTimeout(() => mats.forEach((m) => m.emissive.setRGB(0, 0, 0)), 150);
+  }
+
+  /** 技能特效：範圍技能畫出擴散光環，並依元素噴出不同顏色、方向的方塊粒子 */
+  private skillEffect(at: THREE.Vector3, color: string, radius: number, element: string): void {
+    const col = new THREE.Color(color).getHex();
+    if (radius > 0) {
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(radius * 0.85, radius, 40),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.copy(at).setY(at.y + 0.05);
+      this.zoneRoot.add(ring);
+      const start = performance.now();
+      const tick = () => {
+        const t = (performance.now() - start) / 600;
+        ring.scale.setScalar(0.3 + t * 0.7);
+        (ring.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - t);
+        if (t < 1) requestAnimationFrame(tick);
+        else this.zoneRoot.remove(ring);
+      };
+      tick();
+    }
+    const count = radius > 0 ? 28 : 14;
+    const center = at.clone().setY(at.y + (element === 'lightning' ? 4 : element === 'fire' && radius > 3.5 ? 6 : 0.8));
+    // 雷與隕石從上往下，其他向外爆開
+    this.particles(center, col, count, element === 'lightning' ? 0.12 : 0.18, element === 'lightning' || radius > 3.5 ? 3 : 1.6, 700, element !== 'holy');
   }
 
   private particles(at: THREE.Vector3, color: number, count: number, size: number, speed: number, lifeMs: number, gravity: boolean): void {

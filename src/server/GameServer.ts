@@ -5,7 +5,7 @@
  * 所有會影響經濟的計算（戰鬥、掉寶、採集、強化、製作、交易、交易所）都只在這裡發生。
  */
 import { Character, newCharacter, type CharacterData } from '../core/character';
-import { resolveAttack } from '../core/combat';
+import { defReduction, hitChance, resolveAttack } from '../core/combat';
 import { rollDrops } from '../core/drops';
 import { enchantSuccessRate, ENCHANT_RULES, tryEnchant, type EnchantKind } from '../core/enchant';
 import { craft, gather, Homestead, refreshNode, type HomesteadData, type StationId } from '../core/homestead';
@@ -17,7 +17,7 @@ import { mathRng, randRange, type Rng } from '../core/rng';
 import { TradeSession, type Side } from '../core/trade';
 import { Rarity, RARITY_INFO, STAT_KEYS, type ItemInstance } from '../core/types';
 import {
-  CLASSES, HOMESTEAD_UPGRADES, ITEM_DB, JOB_CHOICES, MONSTER_DB, NODE_DB, NPC_SHOP, POOL_DB, RECIPE_DB, STATION_MAX_LEVEL,
+  CLASSES, HOMESTEAD_UPGRADES, ITEM_DB, MONSTER_DB, NODE_DB, NPC_SHOP, POOL_DB, RECIPE_DB, STATION_MAX_LEVEL,
   STATION_NAMES, initialHomestead, stationUpgradeCost,
 } from '../data';
 import type { MonsterDef } from '../data/monsters';
@@ -26,6 +26,7 @@ import { PROTOCOL_VERSION } from '../net/protocol';
 import { homesteadLayout, MVP_LOCATION, NPC_POSITIONS, worldLayout, ZONE_NAMES, ZONE_SPAWNS, type MapLayout, type WorldZoneId, type ZoneId } from '../shared/maps';
 import { BOT_NAMES, MarketBots } from './marketBots';
 import { ACHIEVEMENT_DB } from '../shared/achievements';
+import { SKILL_DB, type SkillDef } from '../data/skills';
 
 // ------------------------------------------------------------ 介面
 
@@ -76,7 +77,8 @@ type Intent =
   | { kind: 'pickup'; id: number }
   | { kind: 'gather'; node: number }
   | { kind: 'npc'; id: (typeof NPC_POSITIONS)[number]['id'] }
-  | { kind: 'station'; id: StationId };
+  | { kind: 'station'; id: StationId }
+  | { kind: 'skill'; skill: string; target: number };
 
 interface Mover {
   id: number;
@@ -105,6 +107,8 @@ interface PlayerEnt extends Mover {
   invitesFrom: Set<string>;
   party?: Party;
   partyInvitesFrom: Set<string>;
+  cooldowns: Map<string, number>;
+  nextBuffCheck: number;
   lastChat: number;
   createdAt: number;
   passwordHash?: string;
@@ -278,7 +282,7 @@ export class GameServer {
     const p: PlayerEnt = {
       id: this.nextId++, conn, name, ch, home: new Homestead(rec.homestead), pity: new Map(rec.pity),
       x: 0, z: 0, yaw: 0, moving: false, swing: 0, nextAttack: 0, nextGather: 0, nextRegen: 0, lastCombat: -1e9,
-      dirtySelf: true, dirtyHome: true, invitesFrom: new Set(), partyInvitesFrom: new Set(), lastChat: 0, createdAt: rec.createdAt, passwordHash: rec.passwordHash,
+      dirtySelf: true, dirtyHome: true, invitesFrom: new Set(), partyInvitesFrom: new Set(), cooldowns: new Map(), nextBuffCheck: 0, lastChat: 0, createdAt: rec.createdAt, passwordHash: rec.passwordHash,
     };
     if (p.ch.data.hp <= 0) p.ch.data.hp = p.ch.derived().maxHp;
     const offlineHours = Math.max(0, (this.now() - rec.lastLogin) / 3_600_000);
@@ -479,11 +483,23 @@ export class GameServer {
         this.markSelf(p);
         return;
       case 'changeJob':
-        if (JOB_CHOICES.includes(msg.job) && ch.changeJob(msg.job)) {
-          this.announce(p, `恭喜轉職為 ${CLASSES[msg.job].name}！`, '#ffe680');
+        if (typeof msg.job === 'string' && msg.job in CLASSES && ch.changeJob(msg.job)) {
+          const tier = CLASSES[msg.job].tier;
+          this.announce(p, `恭喜${tier === 2 ? '二轉' : '轉職'}為 ${CLASSES[msg.job].name}！`, '#ffe680');
+          if (tier === 2) this.achieve(p, 'SECOND_JOB');
           if (this.opts.online) this.broadcastChat(`${p.name} 轉職為 ${CLASSES[msg.job].name}！`);
         }
         this.markSelf(p);
+        return;
+      case 'learnSkill': {
+        const r = ch.learnSkill(String(msg.skill));
+        if (r.ok) this.log(p, `學會了 ${SKILL_DB.get(msg.skill)!.name} Lv ${ch.skillLevel(msg.skill)}`, '#9fe0ff');
+        else this.log(p, r.reason!, '#f99');
+        this.markSelf(p);
+        return;
+      }
+      case 'skill':
+        this.requestSkill(p, String(msg.skill), msg.target);
         return;
       case 'enchant':
         this.enchant(p, msg.scrollUid, msg.targetUid);
@@ -641,7 +657,7 @@ export class GameServer {
 
   private tickPlayer(p: PlayerEnt, z: Zone, dt: number, now: number): void {
     const ch = p.ch;
-    const d = ch.derived();
+    const d = ch.derived(now);
     const speed = this.speedOf(p);
     p.moving = false;
     const it = p.intent;
@@ -656,7 +672,7 @@ export class GameServer {
             p.intent = undefined;
             break;
           }
-          const range = ch.data.classId === 'archer' || ch.data.classId === 'mage' ? RANGED_RANGE : MELEE_RANGE;
+          const range = this.attackRange(p);
           if (this.moveToward(z, p, m.x, m.z, speed, dt, range)) {
             this.face(p, m.x, m.z);
             if (now >= p.nextAttack) {
@@ -664,6 +680,21 @@ export class GameServer {
               p.swing++;
               this.playerAttack(p, z, m, now);
             }
+          }
+          break;
+        }
+        case 'skill': {
+          const m = z.monsters.find((x) => x.id === it.target);
+          const def = SKILL_DB.get(it.skill);
+          if (!m || m.dead || !def) {
+            p.intent = undefined;
+            break;
+          }
+          if (this.moveToward(z, p, m.x, m.z, speed, dt, def.range ?? this.attackRange(p))) {
+            this.face(p, m.x, m.z);
+            this.castSkill(p, z, def, m, now);
+            // 施放後繼續普攻同一個目標
+            p.intent = m.dead ? undefined : { kind: 'attack', id: m.id };
           }
           break;
         }
@@ -743,6 +774,11 @@ export class GameServer {
       }
     }
 
+    if (now >= p.nextBuffCheck) {
+      p.nextBuffCheck = now + 1000;
+      if (ch.pruneBuffs(now)) this.markSelf(p);
+    }
+
     // 自然回復（脫離戰鬥 4 秒後加速）
     if (now >= p.nextRegen) {
       p.nextRegen = now + 2000;
@@ -757,23 +793,117 @@ export class GameServer {
 
   // ============================================================ 戰鬥
 
+  private attackRange(p: PlayerEnt): number {
+    return p.ch.classDef.ranged ? RANGED_RANGE : MELEE_RANGE;
+  }
+
   private playerAttack(p: PlayerEnt, z: Zone, m: MonsterEnt, now: number): void {
     const ch = p.ch;
-    const d = ch.derived();
-    const atk = ch.data.classId === 'mage' ? Math.max(d.atk, d.matk) : d.atk;
+    const d = ch.derived(now);
+    const atk = ch.classDef.magic ? Math.max(d.atk, d.matk) : d.atk;
     const res = resolveAttack({ atk, def: d.def, hit: d.hit, flee: d.flee, critPct: d.critPct }, m.def, this.rng);
     p.lastCombat = now;
-    if (!m.target) m.target = p;
-    const y = this.monsterHeight(m);
     if (res.kind === 'miss') {
-      this.zoneFx(z, { kind: 'miss', x: m.x, y, z: m.z, text: 'Miss', color: '#cccccc', target: m.id });
+      if (!m.target) m.target = p;
+      this.zoneFx(z, { kind: 'miss', x: m.x, y: this.monsterHeight(m), z: m.z, text: 'Miss', color: '#cccccc', target: m.id });
       return;
     }
-    const dmg = Math.min(res.damage, m.hp);
-    m.hp -= res.damage;
-    m.damageBy.set(p.name, (m.damageBy.get(p.name) ?? 0) + dmg);
-    this.zoneFx(z, { kind: res.kind === 'crit' ? 'crit' : 'dmg', x: m.x, y, z: m.z, text: String(res.damage), color: res.kind === 'crit' ? '#ffd24a' : '#ffffff', target: m.id });
+    this.damageMonster(p, z, m, res.damage, res.kind === 'crit', now);
+  }
+
+  /** 對怪物造成傷害（普攻與技能共用）：記錄傷害來源、顯示數字、判定死亡 */
+  private damageMonster(p: PlayerEnt, z: Zone, m: MonsterEnt, damage: number, crit: boolean, now: number, color?: string): void {
+    if (m.dead) return;
+    if (!m.target) m.target = p;
+    const dealt = Math.min(damage, m.hp);
+    m.hp -= damage;
+    m.damageBy.set(p.name, (m.damageBy.get(p.name) ?? 0) + dealt);
+    this.zoneFx(z, { kind: crit ? 'crit' : 'dmg', x: m.x, y: this.monsterHeight(m), z: m.z, text: String(damage), color: color ?? (crit ? '#ffd24a' : '#ffffff'), target: m.id });
     if (m.hp <= 0) this.killMonster(z, m, now);
+  }
+
+  // ============================================================ 技能
+
+  private requestSkill(p: PlayerEnt, id: string, target?: number): void {
+    const def = SKILL_DB.get(id);
+    const z = p.zone;
+    if (!def || def.kind !== 'active' || !z) return;
+    if (p.ch.skillLevel(id) <= 0) return this.log(p, '尚未學會這個技能。', '#f99');
+    if (def.target === 'enemy') {
+      const m = finite(target) ? z.monsters.find((x) => x.id === target && !x.dead) : undefined;
+      if (!m) return this.log(p, '請先選擇目標。', '#f99');
+      p.intent = { kind: 'skill', skill: id, target: m.id };
+      return;
+    }
+    this.castSkill(p, z, def, undefined, this.now());
+  }
+
+  private static readonly ELEMENT_COLOR: Record<string, string> = {
+    physical: '#ffffff', fire: '#ff8a3a', ice: '#9adfff', lightning: '#ffe860', holy: '#fff4b0', gold: '#ffd24a',
+  };
+
+  /** 施放技能。所有檢查（冷卻、SP、金幣、距離）都在這裡，用戶端無法略過 */
+  private castSkill(p: PlayerEnt, z: Zone, def: SkillDef, target: MonsterEnt | undefined, now: number): void {
+    const ch = p.ch;
+    const lv = ch.skillLevel(def.id);
+    if (lv <= 0) return;
+    const readyAt = p.cooldowns.get(def.id) ?? 0;
+    if (now < readyAt) return this.log(p, `${def.name} 冷卻中（${Math.ceil((readyAt - now) / 1000)} 秒）。`, '#f99');
+    const sp = def.sp?.(lv) ?? 0;
+    if (ch.data.sp < sp) return this.log(p, 'SP 不足。', '#f99');
+    const gold = def.damage?.goldCost?.(lv) ?? 0;
+    if (ch.data.gold < gold) return this.log(p, '金幣不足。', '#f99');
+    if (def.target === 'enemy' && (!target || target.dead)) return;
+
+    ch.data.sp -= sp;
+    ch.data.gold -= gold;
+    const cd = def.cooldownMs?.(lv) ?? 0;
+    p.cooldowns.set(def.id, now + cd);
+    p.conn.send({ t: 'skillUsed', skill: def.id, cooldownMs: cd });
+    p.swing++;
+    p.lastCombat = now;
+    const d = ch.derived(now);
+    p.nextAttack = now + 1000 / d.attacksPerSec; // 技能取代一次普攻
+    const color = GameServer.ELEMENT_COLOR[def.element ?? 'physical'];
+    const cx = target ? target.x : p.x;
+    const cz = target ? target.z : p.z;
+    this.zoneFx(z, { kind: 'skill', x: cx, y: 0.5, z: cz, text: def.name, color, radius: def.damage?.aoe ?? 0, element: def.element, caster: p.id });
+
+    if (def.heal) {
+      const amount = Math.floor(def.heal(lv) * (1 + d.totalStats.int / 100) + d.maxHp * 0.02);
+      ch.data.hp = Math.min(d.maxHp, ch.data.hp + amount);
+      this.zoneFx(z, { kind: 'heal', x: p.x, y: 2.2, z: p.z, text: `+${amount}`, color: '#6f6', target: p.id });
+    }
+    if (def.buff) {
+      ch.addBuff(def.id, lv, now + def.buff.durationMs(lv));
+      this.log(p, `${def.name} 生效（${Math.round(def.buff.durationMs(lv) / 1000)} 秒）`, '#9fe0ff');
+    }
+    const dmg = def.damage;
+    if (dmg) {
+      const victims = dmg.aoe
+        ? z.monsters.filter((m) => !m.dead && Math.hypot(m.x - cx, m.z - cz) <= dmg.aoe!)
+        : target ? [target] : [];
+      const mul = dmg.mul(lv);
+      for (const m of victims) {
+        for (let h = 0; h < (dmg.hits ?? 1) && !m.dead; h++) {
+          const variance = 0.9 + this.rng.next() * 0.2;
+          if (dmg.type === 'magic') {
+            // 魔法必中，敵人防禦效果減半
+            const v = Math.max(1, Math.round(d.matk * mul * variance * defReduction(m.def.def / 2)));
+            this.damageMonster(p, z, m, v, false, now, color);
+          } else {
+            if (this.rng.next() >= hitChance(d.hit + (dmg.hitBonus ?? 0), m.def.flee)) {
+              this.zoneFx(z, { kind: 'miss', x: m.x, y: this.monsterHeight(m), z: m.z, text: 'Miss', color: '#cccccc', target: m.id });
+              if (!m.target) m.target = p;
+              continue;
+            }
+            const v = Math.max(1, Math.round(d.atk * mul * variance * (dmg.ignoreDef ? 1 : defReduction(m.def.def))));
+            this.damageMonster(p, z, m, v, false, now, color);
+          }
+        }
+      }
+    }
+    this.markSelf(p);
   }
 
   private monsterHeight(m: MonsterEnt): number {
@@ -832,7 +962,7 @@ export class GameServer {
         this.announce(pl, `等級提升！Base Lv ${pl.ch.progression.baseLevel}`, '#ffe680');
         this.zoneFx(z, { kind: 'levelup', x: pl.x, y: 2.4, z: pl.z, text: 'LEVEL UP!', color: '#ffe680', target: pl.id });
       }
-      if (lv.jobLevelsGained) this.log(pl, `Job Lv 提升至 ${pl.ch.progression.jobLevel}${pl.ch.canChangeJob() ? '（可以轉職了！按 S 開啟角色視窗）' : ''}`, '#ffe680');
+      if (lv.jobLevelsGained) this.log(pl, `Job Lv 提升至 ${pl.ch.progression.jobLevel}，獲得技能點（按 K 開啟技能視窗）${pl.ch.canChangeJob() ? '。可以轉職了！按 S 開啟角色視窗' : ''}`, '#ffe680');
       this.markSelf(pl);
     }
     m.damageBy.clear();
@@ -950,7 +1080,7 @@ export class GameServer {
 
   private monsterAttack(z: Zone, m: MonsterEnt, p: PlayerEnt, now: number): void {
     const ch = p.ch;
-    const res = resolveAttack({ ...m.def, critPct: 1 }, ch.derived(), this.rng);
+    const res = resolveAttack({ ...m.def, critPct: 1 }, ch.derived(now), this.rng);
     p.lastCombat = now;
     if (res.kind === 'miss') {
       this.zoneFx(z, { kind: 'miss', x: p.x, y: 2.2, z: p.z, text: 'Miss', color: '#9fd', target: p.id });
@@ -1118,7 +1248,8 @@ export class GameServer {
     if (!entry) return;
     const def = getDef(ITEM_DB, itemId);
     const n = def.stackable ? Math.min(Math.max(1, Math.floor(qty)), 100) : 1;
-    const cost = entry.price * n;
+    const discount = Math.min(40, p.ch.passiveBonus().npcBuyDiscountPct ?? 0);
+    const cost = Math.max(1, Math.floor(entry.price * (1 - discount / 100))) * n;
     if (p.ch.data.gold < cost) return this.log(p, '金幣不足。', '#f99');
     const it = createItem(ITEM_DB, this.uids, itemId, n, { kind: 'npc', at: this.now() });
     if (!p.ch.inventory.add(it)) return this.log(p, '背包已滿。', '#f99');
@@ -1504,10 +1635,10 @@ export class GameServer {
   // ============================================================ 測試 / 除錯用
 
   /** 僅供測試：取得玩家的角色與位置 */
-  debugPlayer(name: string): { ch: Character; x: number; z: number; zone?: string; setPos(x: number, z: number): void } | undefined {
+  debugPlayer(name: string): { ch: Character; x: number; z: number; zone?: string; setPos(x: number, z: number): void; sync(): void } | undefined {
     const p = this.byName.get(name);
     if (!p) return undefined;
-    return { ch: p.ch, x: p.x, z: p.z, zone: p.zone?.key, setPos: (x, z) => { p.x = x; p.z = z; } };
+    return { ch: p.ch, x: p.x, z: p.z, zone: p.zone?.key, setPos: (x, z) => { p.x = x; p.z = z; }, sync: () => this.markSelf(p) };
   }
 
   debugMonsters(zone: WorldZoneId = 'field'): { id: number; def: string; x: number; z: number; hp: number; dead: boolean }[] {

@@ -49,7 +49,9 @@ export type ClientMsg =
   | { t: 'partyRespond'; from: string; accept: boolean }
   | { t: 'partyLeave' }
   | { t: 'partyKick'; name: string }
-  | { t: 'partyShare'; mode: PartyShareMode };
+  | { t: 'partyShare'; mode: PartyShareMode }
+  | { t: 'learnSkill'; skill: string }
+  | { t: 'skill'; skill: string; target?: number };
 
 export type PartyShareMode = 'even' | 'each';
 
@@ -134,7 +136,7 @@ export interface MarketView {
   averages: Record<string, number>;
 }
 
-export type FxKind = 'dmg' | 'crit' | 'miss' | 'hurt' | 'heal' | 'levelup' | 'text' | 'poof' | 'chips';
+export type FxKind = 'dmg' | 'crit' | 'miss' | 'hurt' | 'heal' | 'levelup' | 'text' | 'poof' | 'chips' | 'skill';
 
 export type ServerMsg =
   | { t: 'welcome'; id: number; name: string; online: boolean }
@@ -143,7 +145,8 @@ export type ServerMsg =
   | { t: 'snap'; players: PlayerSnap[]; monsters: MonsterSnap[]; items: ItemSnap[]; nodes: NodeSnap[] }
   | { t: 'self'; data: CharacterData }
   | { t: 'home'; data: HomesteadData }
-  | { t: 'fx'; kind: FxKind; x: number; y: number; z: number; text?: string; color?: string; target?: number }
+  | { t: 'fx'; kind: FxKind; x: number; y: number; z: number; text?: string; color?: string; target?: number; radius?: number; element?: string; caster?: number }
+  | { t: 'skillUsed'; skill: string; cooldownMs: number }
   | { t: 'log'; msg: string; color?: string }
   | { t: 'announce'; msg: string; color: string }
   | { t: 'open'; kind: 'npc'; id: NpcId }
