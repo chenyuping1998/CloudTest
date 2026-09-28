@@ -364,7 +364,8 @@ function bindInput(cs: ClientState, world: World, hud: Hud): void {
     e.preventDefault();
   }, { passive: false });
   window.addEventListener('keydown', (e) => {
-    if ((e.target as HTMLElement).tagName === 'INPUT') return;
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
     const k = e.key.toLowerCase();
     if (k === 'escape') {
       hud.closeTopPanel();
@@ -375,7 +376,7 @@ function bindInput(cs: ClientState, world: World, hud: Hud): void {
       hud.focusChat();
       return;
     }
-    if (k === 'f1') e.preventDefault();
+    if (k === 'f1' || k === 'f8') e.preventDefault();
     if (k === 'f11') {
       e.preventDefault();
       platform.toggleFullscreen();

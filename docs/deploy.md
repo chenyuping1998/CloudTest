@@ -19,6 +19,24 @@
 
 不用租主機、不用設定路由器，適合找朋友小規模測試。玩家連線期間電腦要保持開機。
 
+### 最簡單：一鍵啟動
+
+1. 安裝 [Node.js 22 LTS](https://nodejs.org) 與 [Git](https://git-scm.com)
+2. 下載專案（只需要一次）：`git clone -b claude/gallant-babbage-1mfxmf https://github.com/chenyuping1998/CloudTest.git`
+3. 之後每次測試：**雙擊 `開始測試.bat`**（Mac：`開始測試.command`）
+
+它會自動更新到最新版、安裝套件、建置、啟動伺服器、安裝並開啟 Cloudflare 通道，
+最後顯示要傳給朋友的網址（已複製到剪貼簿）。按 Ctrl + C 結束，伺服器會先存檔。
+
+### 封測數據與回報
+
+- 玩家在遊戲裡按 **F8（回報）** 寫下問題，會自動附上位置、等級、職業、瀏覽器資訊
+- 伺服器記錄每位玩家升級時的實際遊玩時間（5 分鐘沒操作不計）
+- 測試後執行 `npm run report:playtest`（或 `npm run report:playtest -- --out 報表.md`），得到：
+  練功節奏（真實玩家 vs 設計曲線）、新手教學每一步的完成人數（找出卡關處）、經濟事件、全部回報
+
+### 手動步驟（想知道一鍵啟動做了什麼）
+
 **1. 在自己電腦啟動測試伺服器**（需要 Node.js 22 以上）
 
 ```bash

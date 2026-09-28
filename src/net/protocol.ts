@@ -50,6 +50,7 @@ export type ClientMsg =
   | { t: 'partyLeave' }
   | { t: 'partyKick'; name: string }
   | { t: 'partyShare'; mode: PartyShareMode }
+  | { t: 'feedback'; category: 'bug' | 'balance' | 'idea' | 'other'; text: string; client?: Record<string, string | number> }
   | { t: 'questAccept'; id: string }
   | { t: 'questTurnIn'; id: string }
   | { t: 'questAbandon'; id: string }

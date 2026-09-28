@@ -68,6 +68,9 @@ export class Hud {
   private tracker: HTMLDivElement;
   private npcDialog: Panel;
   private questsPanel: Panel;
+  private feedbackPanel: Panel;
+  private feedbackDraft = '';
+  private feedbackCat: 'bug' | 'balance' | 'idea' | 'other' = 'bug';
   private dialogNpc: NpcId = 'guide';
   private tradeAddUid?: string;
   private tradeGoldDraft = '';
@@ -110,6 +113,7 @@ export class Hud {
       menuBtn('home', '家園', 'H', () => this.home),
       menuBtn('book', '掉寶表', 'D', () => this.drops),
       menuBtn('help', '說明', 'F1', () => this.help),
+      menuBtn('book', '回報', 'F8', () => this.feedbackPanel),
       menuBtn('gear', '設定', 'O', () => this.settingsPanel),
     );
     this.minimap = h('canvas', { class: 'minimap-canvas', width: 180, height: 180 });
@@ -148,11 +152,12 @@ export class Hud {
     this.settingsPanel = new Panel(root, '設定', { x: window.innerWidth / 2 - 190, y: 100, w: 380 });
     this.npcDialog = new Panel(root, '委託', { x: window.innerWidth / 2 - 240, y: 70, w: 480 });
     this.questsPanel = new Panel(root, '任務日誌', { x: 380, y: 70, w: 440 });
+    this.feedbackPanel = new Panel(root, '回報問題 / 建議', { x: window.innerWidth / 2 - 210, y: 90, w: 420 });
     this.storagePanel = new Panel(root, '倉庫', { x: window.innerWidth - 880, y: 70, w: 420 });
     this.tradePanel = new Panel(root, '交易', { x: 360, y: 90, w: 560 }, () => {
       if (this.cs.trade) this.cs.send({ t: 'tradeCancel' });
     });
-    for (const p of [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.tradePanel, this.skillsPanel, this.storagePanel, this.settingsPanel, this.npcDialog, this.questsPanel]) {
+    for (const p of [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.tradePanel, this.skillsPanel, this.storagePanel, this.settingsPanel, this.npcDialog, this.questsPanel, this.feedbackPanel]) {
       p.body.addEventListener('click', () => this.markDirty());
     }
   }
@@ -173,11 +178,11 @@ export class Hud {
   }
 
   anyPanelOpen(): boolean {
-    return [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel, this.settingsPanel, this.npcDialog, this.questsPanel].some((p) => p.visible);
+    return [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel, this.settingsPanel, this.npcDialog, this.questsPanel, this.feedbackPanel].some((p) => p.visible);
   }
 
   closeTopPanel(): boolean {
-    const open = [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel, this.settingsPanel, this.npcDialog, this.questsPanel]
+    const open = [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel, this.settingsPanel, this.npcDialog, this.questsPanel, this.feedbackPanel]
       .filter((p) => p.visible)
       .sort((a, b) => Number(b.el.style.zIndex) - Number(a.el.style.zIndex));
     if (!open.length) return false;
@@ -194,7 +199,7 @@ export class Hud {
   }
 
   key(k: string): void {
-    const map: Record<string, Panel> = { i: this.inv, s: this.stats, h: this.home, d: this.drops, f1: this.help, k: this.skillsPanel, o: this.settingsPanel, l: this.questsPanel };
+    const map: Record<string, Panel> = { i: this.inv, s: this.stats, h: this.home, d: this.drops, f1: this.help, k: this.skillsPanel, o: this.settingsPanel, l: this.questsPanel, f8: this.feedbackPanel };
     const p = map[k];
     if (p) this.toggle(p);
     const idx = ['1', '2', '3', '4'].indexOf(k);
@@ -298,7 +303,8 @@ export class Hud {
     this.renderTracker();
     this.renderHotbar();
     // 正在輸入的視窗不重繪，避免輸入內容與焦點被清掉
-    const typing = document.activeElement instanceof HTMLInputElement ? document.activeElement.closest('.panel') : null;
+    const el = document.activeElement;
+    const typing = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el.closest('.panel') : null;
     if (typing) this.dirty = true;
     const draw = (panel: Panel, fn: () => void) => {
       if (panel.visible && typing !== panel.el) fn();
@@ -316,6 +322,7 @@ export class Hud {
     draw(this.settingsPanel, () => this.renderSettings());
     draw(this.npcDialog, () => this.renderNpcDialog());
     draw(this.questsPanel, () => this.renderQuestLog());
+    draw(this.feedbackPanel, () => this.renderFeedback());
   }
 
   // ------------------------------------------------------------ 多人：聊天、交易
@@ -1167,6 +1174,41 @@ export class Hud {
       this.inv.show();
     }
     this.markDirty();
+  }
+
+  // ------------------------------------------------------------ 封測回報
+
+  private renderFeedback(): void {
+    const cats = { bug: '錯誤 / Bug', balance: '平衡（太難 / 太簡單）', idea: '建議', other: '其他' } as const;
+    const area = h('textarea', { class: 'feedback-text', maxlength: 1000, placeholder: '發生了什麼事？做了什麼 → 預期什麼 → 實際發生什麼。\n位置、等級、職業會自動附上。' });
+    area.value = this.feedbackDraft;
+    const counter = h('span', { class: 'muted small' }, `${this.feedbackDraft.length} / 1000`);
+    area.addEventListener('input', () => {
+      this.feedbackDraft = area.value;
+      counter.textContent = `${area.value.length} / 1000`;
+    });
+    area.addEventListener('keydown', (e) => e.stopPropagation());
+    const send = () => {
+      const text = this.feedbackDraft.trim();
+      if (!text) return this.log('請先輸入內容。', '#f99');
+      const gl = (this.world() as unknown as { renderer?: { info?: { render?: { calls?: number } } } }).renderer?.info?.render?.calls;
+      this.cs.send({
+        t: 'feedback', category: this.feedbackCat, text,
+        client: { ua: navigator.userAgent.slice(0, 160), screen: `${window.innerWidth}x${window.innerHeight}@${window.devicePixelRatio}`, drawCalls: gl ?? -1, online: this.cs.online ? 1 : 0 },
+      });
+      this.feedbackDraft = '';
+      this.feedbackPanel.hide();
+    };
+    this.feedbackPanel.set(
+      h('div', { class: 'seg', style: 'margin-bottom:6px' }, ...(Object.keys(cats) as (keyof typeof cats)[]).map((k) =>
+        h('button', { class: `btn btn-small${this.feedbackCat === k ? ' on' : ''}`, onclick: () => (this.feedbackCat = k) }, cats[k]))),
+      area,
+      h('div', { class: 'actions', style: 'display:flex;justify-content:space-between;align-items:center;margin-top:6px' },
+        counter,
+        h('button', { class: 'btn btn-primary', onclick: send }, '送出')),
+      h('div', { class: 'muted small', style: 'margin-top:6px' }, '感謝幫忙測試！回報會存在伺服器上，開發者用 npm run report:playtest 查看。'),
+    );
+    if (document.activeElement === document.body) requestAnimationFrame(() => area.focus());
   }
 
   // ------------------------------------------------------------ 任務

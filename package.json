@@ -22,7 +22,9 @@
     "dist:mac": "vite build && electron-builder --mac --dir",
     "build:server": "vite build --ssr server/main.ts --outDir dist-server --emptyOutDir",
     "start:server": "node dist-server/main.js",
-    "host": "npm run build && npm run build:server && node tools/host.mjs"
+    "host": "npm run build && npm run build:server && node tools/host.mjs",
+    "playtest": "node tools/playtest.mjs",
+    "report:playtest": "vite-node tools/playtest-report.ts"
   },
   "license": "MIT",
   "dependencies": {

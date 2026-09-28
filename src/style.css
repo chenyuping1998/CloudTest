@@ -482,3 +482,7 @@ b { font-weight: normal; }
 .toggle { min-width: 44px; justify-self: start; }
 .toggle.on, .seg .on { background: #3a2a08; color: var(--gold-hi); border-color: var(--gold); }
 .seg { display: flex; gap: 3px; grid-column: 2 / 4; }
+
+/* ---------- 封測回報 ---------- */
+.feedback-text { width: 100%; min-height: 140px; resize: vertical; background: var(--slate-3); color: var(--ink); border: 2px solid #000; box-shadow: 0 0 0 1px var(--line); padding: 8px; font-family: var(--font); font-size: 12px; line-height: 1.6; }
+.feedback-text:focus { outline: none; box-shadow: 0 0 0 1px var(--gold); }

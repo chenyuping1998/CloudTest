@@ -18,6 +18,8 @@ npm run sim:leveling # 練功節奏報表（每級耗時、最佳練功怪）
 npm run art:export # 匯出目前材質與模型清單給美術當範本（art/templates/）
 npm run server     # 連線伺服器 ws://localhost:8787（標題畫面選「連線遊玩」）
 npm run host       # 自己電腦開測試服（網頁 + 連線同一個埠），搭配 Cloudflare Tunnel 給朋友玩
+npm run playtest   # 一鍵封測：建置 + 伺服器 + Cloudflare 通道 + 顯示網址（= 雙擊「開始測試.bat」）
+npm run report:playtest # 封測報表：練功節奏、教學流失、玩家回報
 npm run desktop    # 以 Electron 桌面版執行（有開 Steam 時會自動連上 Steam）
 npm run dist:win   # 打包 Windows 版到 release/win-unpacked（Linux：dist:linux、Mac：dist:mac）
 npm run build      # 產生 dist/
@@ -39,6 +41,7 @@ npm run build:server # 產生正式版伺服器 dist-server/
 | 5 ~ 8 | 快捷技能 |
 | I / S / K / H / D / F1 | 背包 / 角色 / 技能 / 家園 / 掉寶表 / 說明 |
 | L | 任務日誌 |
+| F8 | 回報問題 / 建議（封測用） |
 | O | 設定（音量、陰影、解析度、天氣粒子） |
 | Enter / F11 | 聊天 / 全螢幕 |
 

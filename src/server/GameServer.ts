@@ -50,6 +50,8 @@ export interface AccountRecord {
   pity: [string, number][];
   createdAt: number;
   lastLogin: number;
+  /** 實際遊玩秒數（5 分鐘沒有操作就不計），用來比對練功節奏 */
+  playSeconds?: number;
 }
 
 export interface WorldRecord {
@@ -130,6 +132,9 @@ interface PlayerEnt extends Mover {
   createdAt: number;
   passwordHash?: string;
   steamId?: string;
+  playMs: number;
+  lastInput: number;
+  lastFeedback: number;
 }
 
 interface Party {
@@ -195,6 +200,9 @@ function own<T extends object>(obj: T, key: unknown): key is keyof T {
 }
 
 const EQUIP_SLOTS: readonly string[] = ['weapon', 'armor', 'helm', 'shield', 'boots', 'accessory'] satisfies EquipSlot[];
+
+/** 超過這段時間沒有任何操作就視為掛機，不計入遊玩時間 */
+const AFK_AFTER_MS = 5 * 60_000;
 
 const TRADE_BLOCKED = new Set<ClientMsg['t']>([
   'useItem', 'equip', 'unequip', 'enchant', 'compound', 'discard', 'craft', 'upgradeHome', 'upgradeStation',
@@ -274,6 +282,7 @@ export class GameServer {
     }
     const p = this.players.get(conn);
     if (!p) return;
+    p.lastInput = this.now();
     try {
       this.dispatch(p, msg);
     } catch (e) {
@@ -363,6 +372,7 @@ export class GameServer {
       id: this.nextId++, conn, name, ch, home: new Homestead(rec.homestead), pity: new Map(rec.pity),
       x: 0, z: 0, yaw: 0, moving: false, swing: 0, nextAttack: 0, nextGather: 0, nextRegen: 0, lastCombat: -1e9,
       dirtySelf: true, dirtyHome: true, invitesFrom: new Set(), partyInvitesFrom: new Set(), cooldowns: new Map(), nextBuffCheck: 0, lastChat: 0, createdAt: rec.createdAt, passwordHash: rec.passwordHash, steamId: rec.steamId,
+      playMs: (rec.playSeconds ?? 0) * 1000, lastInput: this.now(), lastFeedback: -1e12,
     };
     if (p.ch.data.hp <= 0) p.ch.data.hp = p.ch.derived().maxHp;
     const offlineHours = Math.max(0, (this.now() - rec.lastLogin) / 3_600_000);
@@ -409,6 +419,7 @@ export class GameServer {
       pity: [...p.pity],
       createdAt: p.createdAt,
       lastLogin: this.now(),
+      playSeconds: Math.floor(p.playMs / 1000),
     };
     // 同一帳號的寫入依序排隊，避免舊資料覆蓋新資料
     const prev = this.saveChains.get(p.name) ?? Promise.resolve();
@@ -605,6 +616,9 @@ export class GameServer {
         this.markSelf(p);
         return;
       }
+      case 'feedback':
+        this.feedback(p, msg);
+        return;
       case 'questAccept':
       case 'questTurnIn':
       case 'questAbandon':
@@ -705,6 +719,7 @@ export class GameServer {
     const now = this.now();
     for (const z of [...this.zones.values()]) this.tickZone(z, dt, now);
     for (const p of this.players.values()) {
+      if (now - p.lastInput < AFK_AFTER_MS) p.playMs += dt * 1000;
       if (p.dirtySelf) this.flushSelf(p);
       if (p.dirtyHome) {
         p.dirtyHome = false;
@@ -1234,6 +1249,8 @@ export class GameServer {
   private giveExp(pl: PlayerEnt, be: number, je: number): void {
     const lv = addExp(pl.ch.progression, be, je);
     if (lv.baseLevelsGained) {
+      // 封測分析用：每次升級記下實際遊玩時數（npm run report:playtest）
+      this.audit('level_up', pl.name, { level: pl.ch.progression.baseLevel, jobLevel: pl.ch.progression.jobLevel, classId: pl.ch.data.classId, playSeconds: Math.floor(pl.playMs / 1000), zone: pl.zone?.kind });
       const d = pl.ch.derived();
       pl.ch.data.hp = d.maxHp;
       pl.ch.data.sp = d.maxSp;
@@ -1242,6 +1259,25 @@ export class GameServer {
     }
     if (lv.jobLevelsGained) this.log(pl, `Job Lv 提升至 ${pl.ch.progression.jobLevel}，獲得技能點（按 K 開啟技能視窗）${pl.ch.canChangeJob() ? '。可以轉職了！按 S 開啟角色視窗' : ''}`, '#ffe680');
     this.markSelf(pl);
+  }
+
+  // ============================================================ 封測回報
+
+  private feedback(p: PlayerEnt, msg: Extract<ClientMsg, { t: 'feedback' }>): void {
+    const text = typeof msg.text === 'string' ? msg.text.replace(/[\u0000-\u0008\u000b-\u001f]/g, '').trim().slice(0, 1000) : '';
+    if (!text) return;
+    const now = this.now();
+    if (now - p.lastFeedback < 20_000) return this.log(p, '回報太頻繁了，請稍等一下。', '#f99');
+    p.lastFeedback = now;
+    const category = msg.category === 'bug' || msg.category === 'balance' || msg.category === 'idea' ? msg.category : 'other';
+    const client = msg.client && typeof msg.client === 'object' ? JSON.stringify(msg.client).slice(0, 400) : undefined;
+    this.audit('feedback', p.name, {
+      category, text, client,
+      zone: p.zone?.kind, x: Math.round(p.x), z: Math.round(p.z),
+      level: p.ch.progression.baseLevel, jobLevel: p.ch.progression.jobLevel, classId: p.ch.data.classId,
+      playSeconds: Math.floor(p.playMs / 1000),
+    });
+    this.log(p, '感謝回報！已經送出，開發者會看到。', '#9fffb0');
   }
 
   // ============================================================ 任務
