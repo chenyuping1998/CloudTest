@@ -15,6 +15,9 @@ import { itemIcon } from './sprites';
 import { SKILL_DB, type SkillDef } from '../data/skills';
 import { pixelIcon } from './pixelIcons';
 import { facePortrait } from './voxel/models';
+import { compareEquip, skillEffectLines, statPreview } from './describe';
+import { WEIGHT_NO_ACTION, WEIGHT_NO_REGEN } from '../core/character';
+import { SECOND_JOB_OF } from '../data/classes';
 import { ask, bar, fmt, h, Panel } from './ui';
 import type { NpcId, World } from './world';
 import { ZONE_NAMES } from '../shared/maps';
@@ -22,7 +25,9 @@ import { ZONE_NAMES } from '../shared/maps';
 type InvFilter = 'all' | 'equip' | 'use' | 'mat' | 'etc';
 
 const SLOT_NAMES: Record<EquipSlot, string> = { weapon: '武器', armor: '鎧甲', helm: '頭盔', shield: '盾牌', boots: '鞋子', accessory: '飾品' };
-const HOTBAR = ['red_potion', 'orange_potion', 'white_potion', 'blue_potion'];
+const TYPE_ORDER: Record<string, number> = { weapon: 0, armor: 1, accessory: 2, tool: 3, consumable: 4, scroll: 5, card: 6, material: 7 };
+const SORT_LABEL = { none: '取得順序', type: '依類型', rarity: '依稀有度', name: '依名稱' } as const;
+const DERIVED_NAMES: Record<string, string> = { mining: '採礦', woodcutting: '伐木', smithing: '鍛造', carpentry: '木工', alchemy: '鍊金' };
 
 export class Hud {
   private status: HTMLDivElement;
@@ -48,6 +53,9 @@ export class Hud {
   private drops: Panel;
   private tradePanel: Panel;
   private skillsPanel: Panel;
+  private storagePanel: Panel;
+  private invSearch = '';
+  private storageSel?: string;
   private chatInput: HTMLInputElement;
   private onlineEl: HTMLSpanElement;
   private partyEl: HTMLDivElement;
@@ -111,19 +119,20 @@ export class Hud {
     window.addEventListener('mouseup', () => (this.pointerDown = false));
     root.append(this.labelLayer, this.floatLayer, this.status, this.partyEl, menu, minimapBox, logBox, this.announceEl, this.hotbar, this.tooltip);
 
-    this.inv = new Panel(root, '背包', { x: window.innerWidth - 400, y: 70, w: 370 }, () => (this.pending = undefined));
-    this.stats = new Panel(root, '角色資訊', { x: 20, y: 200, w: 360 });
+    this.inv = new Panel(root, '背包', { x: window.innerWidth - 450, y: 70, w: 430 }, () => (this.pending = undefined));
+    this.stats = new Panel(root, '角色資訊', { x: 20, y: 60, w: 620 });
     this.home = new Panel(root, '我的家園', { x: 400, y: 80, w: 400 });
     this.station = new Panel(root, '設施', { x: 400, y: 80, w: 460 });
     this.shop = new Panel(root, '道具商人', { x: 400, y: 80, w: 420 });
     this.market = new Panel(root, '交易所', { x: 360, y: 60, w: 560 });
     this.help = new Panel(root, '遊戲說明', { x: 380, y: 60, w: 520 });
     this.drops = new Panel(root, '怪物掉寶表', { x: 380, y: 60, w: 520 });
-    this.skillsPanel = new Panel(root, '技能', { x: 380, y: 70, w: 520 });
+    this.skillsPanel = new Panel(root, '技能', { x: 360, y: 60, w: 600 });
+    this.storagePanel = new Panel(root, '倉庫', { x: window.innerWidth - 880, y: 70, w: 420 });
     this.tradePanel = new Panel(root, '交易', { x: 360, y: 90, w: 560 }, () => {
       if (this.cs.trade) this.cs.send({ t: 'tradeCancel' });
     });
-    for (const p of [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.tradePanel, this.skillsPanel]) {
+    for (const p of [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.tradePanel, this.skillsPanel, this.storagePanel]) {
       p.body.addEventListener('click', () => this.markDirty());
     }
   }
@@ -144,11 +153,11 @@ export class Hud {
   }
 
   anyPanelOpen(): boolean {
-    return [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel].some((p) => p.visible);
+    return [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel].some((p) => p.visible);
   }
 
   closeTopPanel(): boolean {
-    const open = [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel]
+    const open = [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel]
       .filter((p) => p.visible)
       .sort((a, b) => Number(b.el.style.zIndex) - Number(a.el.style.zIndex));
     if (!open.length) return false;
@@ -161,6 +170,7 @@ export class Hud {
     this.station.hide();
     this.shop.hide();
     this.market.hide();
+    this.storagePanel.hide();
   }
 
   key(k: string): void {
@@ -268,19 +278,20 @@ export class Hud {
     this.renderHotbar();
     // 正在輸入的視窗不重繪，避免輸入內容與焦點被清掉
     const typing = document.activeElement instanceof HTMLInputElement ? document.activeElement.closest('.panel') : null;
-    if (typing) {
-      this.dirty = true;
-      if (typing === this.market.el) return;
-    }
-    if (this.inv.visible) this.renderInventory();
-    if (this.stats.visible) this.renderStats();
-    if (this.home.visible) this.renderHome();
-    if (this.station.visible) this.renderStation();
-    if (this.shop.visible) this.renderShop();
-    if (this.market.visible) this.renderMarket();
-    if (this.help.visible) this.renderHelp();
-    if (this.drops.visible) this.renderDrops();
-    if (this.skillsPanel.visible) this.renderSkills();
+    if (typing) this.dirty = true;
+    const draw = (panel: Panel, fn: () => void) => {
+      if (panel.visible && typing !== panel.el) fn();
+    };
+    draw(this.inv, () => this.renderInventory());
+    draw(this.stats, () => this.renderStats());
+    draw(this.home, () => this.renderHome());
+    draw(this.station, () => this.renderStation());
+    draw(this.shop, () => this.renderShop());
+    draw(this.market, () => this.renderMarket());
+    draw(this.help, () => this.renderHelp());
+    draw(this.drops, () => this.renderDrops());
+    draw(this.skillsPanel, () => this.renderSkills());
+    draw(this.storagePanel, () => this.renderStorage());
   }
 
   // ------------------------------------------------------------ 多人：聊天、交易
@@ -522,11 +533,16 @@ export class Hud {
   private renderHotbar(): void {
     const ch = this.player;
     this.hotbar.replaceChildren(
-      ...HOTBAR.map((id, i) => {
-        const def = getDef(ITEM_DB, id);
-        const n = ch.inventory.count(id);
-        return h('div', { class: `hot-slot${n ? '' : ' empty'}`, title: def.name, onclick: () => this.useHotbar(i) },
-          h('img', { src: itemIcon(def) }), h('span', { class: 'hot-key' }, String(i + 1)), h('span', { class: 'hot-qty' }, String(n)));
+      ...this.cs.itemBar.map((id, i) => {
+        const def = id ? ITEM_DB.get(id) : undefined;
+        const n = def ? ch.inventory.count(def.id) : 0;
+        return h('div', {
+          class: `hot-slot${n ? '' : ' empty'}`,
+          title: def ? `${def.name}（右鍵清除）` : '在背包選擇消耗品後按「快捷 1~4」指定',
+          onclick: () => this.useHotbar(i),
+          oncontextmenu: (e: Event) => { e.preventDefault(); this.cs.setItemSlot(i, null); this.markDirty(); },
+        },
+          def ? h('img', { src: itemIcon(def) }) : '', h('span', { class: 'hot-key' }, String(i + 1)), def ? h('span', { class: 'hot-qty' }, String(n)) : '');
       }),
       h('div', { class: 'hot-sep' }),
       ...this.cs.skillBar.map((sid, i) => {
@@ -583,59 +599,67 @@ export class Hud {
 
   // ------------------------------------------------------------ 技能視窗
 
-  /** 未指定 → 第一個空格；已在第 k 格 → 移到 k+1；已在最後一格 → 取消 */
-  private cycleSkillSlot(id: string): void {
-    const cur = this.cs.skillBar.indexOf(id);
-    if (cur < 0) {
-      const empty = this.cs.skillBar.indexOf(null);
-      this.cs.setSkillSlot(empty >= 0 ? empty : 0, id);
-    } else if (cur < 3) {
-      this.cs.setSkillSlot(cur + 1, id);
-    } else {
-      this.cs.skillBar[cur] = null;
-      this.cs.setSkillSlot(-1, null);
-    }
-  }
-
   private renderSkills(): void {
     const ch = this.player;
-    const byClass = new Map<string, SkillDef[]>();
-    for (const s of ch.availableSkills()) byClass.set(s.classId, [...(byClass.get(s.classId) ?? []), s]);
-    const sections = [...byClass].map(([cls, list]) => h('div', {},
-      h('h4', {}, CLASSES[cls as keyof typeof CLASSES].name),
-      ...list.map((s) => {
-        const lv = ch.skillLevel(s.id);
-        const can = ch.canLearn(s.id);
-        const next = Math.max(1, lv);
-        const meta = s.kind === 'active'
-          ? `SP ${s.sp?.(next)}${s.cooldownMs ? ` · 冷卻 ${(s.cooldownMs(next) / 1000).toFixed(1)} 秒` : ''}${s.damage?.aoe ? ` · 範圍 ${s.damage.aoe} 格` : ''}${s.damage?.goldCost ? ` · 金幣 ${s.damage.goldCost(next)}` : ''}`
-          : '被動技能';
-        const slot = this.cs.skillBar.indexOf(s.id);
-        return h('div', { class: `skill-row${lv ? '' : ' unlearned'}` },
-          h('img', { class: 'skill-icon', src: skillIcon(s) }),
-          h('div', { class: 'skill-info' },
-            h('div', {}, h('span', { class: 'skill-name' }, s.name), h('span', { class: 'skill-lv' }, ` Lv ${lv} / ${s.maxLevel}`)),
-            h('div', { class: 'muted small' }, s.desc),
-            h('div', { class: 'small skill-meta' }, meta),
-            s.requires?.length ? h('div', { class: 'small', style: `color:${s.requires.every((r) => ch.skillLevel(r.skill) >= r.level) ? 'var(--ok)' : 'var(--lack)'}` },
-              `需要：${s.requires.map((r) => `${SKILL_DB.get(r.skill)?.name} Lv${r.level}`).join('、')}`) : ''),
-          h('div', { class: 'skill-actions' },
-            h('button', { class: 'btn btn-small btn-primary', disabled: !can.ok, title: can.reason ?? '', onclick: () => this.cs.send({ t: 'learnSkill', skill: s.id }) }, lv ? '升級' : '學習'),
-            s.kind === 'active' && lv
-              ? h('button', { class: 'btn btn-small', title: '指定到快捷鍵 5~8（再按一次換下一格，第 8 格之後取消）', onclick: () => { this.cycleSkillSlot(s.id); this.markDirty(); } },
-                  slot >= 0 ? `快捷 ${slot + 5}` : '設為快捷')
-              : ''),
-        );
-      })));
-    this.skillsPanel.setTitle(`技能（剩餘點數 ${ch.progression.skillPoints}）`);
+    const lineage = new Set(ch.availableSkills().map((s) => s.classId));
+    const preview = ch.classDef.tier === 1 ? SECOND_JOB_OF[ch.data.classId] : undefined;
+    const classes = [...lineage, ...(preview ? [preview] : [])];
+    const points = ch.progression.skillPoints;
+    const sections = classes.map((cls) => {
+      const locked = cls === preview;
+      const list = [...SKILL_DB.values()].filter((s) => s.classId === cls);
+      return h('div', { class: 'skill-section' },
+        h('h4', {}, CLASSES[cls].name, locked ? h('span', { class: 'muted small' }, `　二轉（Job Lv ${40}）後可學，先看看要怎麼點`) : ''),
+        ...list.map((s) => this.skillRow(s, locked)));
+    });
+    this.skillsPanel.setTitle(`技能　剩餘點數 ${points}`);
     this.skillsPanel.set(
-      h('div', { class: 'muted' }, '每升一級 Job 獲得 1 點技能點。主動技能可以指定到快捷鍵 5~8（再按一次換位置）；有目標的技能會對目前選取或最近的敵人施放。'),
+      h('div', { class: 'skill-help muted small' }, '每升 1 級 Job 得 1 點。Shift + 點「升級」可一次點滿。主動技能按右邊的 5~8 指定快捷鍵。'),
       ...sections,
     );
   }
 
+  private skillRow(s: SkillDef, locked: boolean): HTMLElement {
+    const ch = this.player;
+    const lv = ch.skillLevel(s.id);
+    const can = ch.canLearn(s.id);
+    const now = skillEffectLines(s, lv);
+    const next = lv < s.maxLevel ? skillEffectLines(s, lv + 1) : [];
+    const kindTag = s.kind === 'passive' ? '被動' : s.buff ? '增益' : s.heal ? '治療' : s.damage?.aoe ? '範圍' : '主動';
+    const reqOk = (s.requires ?? []).every((r) => ch.skillLevel(r.skill) >= r.level);
+    const slotBtns = s.kind === 'active' && lv > 0 && !locked
+      ? h('div', { class: 'slot-btns', title: '指定到快捷鍵（再按一次取消）' }, ...[0, 1, 2, 3].map((i) => {
+          const on = this.cs.skillBar[i] === s.id;
+          return h('button', { class: `slot-btn${on ? ' on' : ''}`, onclick: () => { this.cs.setSkillSlot(i, on ? null : s.id); this.markDirty(); } }, String(i + 5));
+        }))
+      : '';
+    const learn = locked ? h('span', { class: 'muted small' }, '尚未開放') : h('button', {
+      class: 'btn btn-small btn-primary', disabled: !can.ok, title: can.ok ? 'Shift + 點擊：連續升到最高等級' : can.reason ?? '',
+      onclick: (e: Event) => {
+        const times = (e as MouseEvent).shiftKey ? Math.min(s.maxLevel - lv, ch.progression.skillPoints) : 1;
+        for (let i = 0; i < times; i++) this.cs.send({ t: 'learnSkill', skill: s.id });
+      },
+    }, lv ? '升級' : '學習');
+    return h('div', { class: `skill-row${lv ? '' : ' unlearned'}${locked ? ' locked' : ''}` },
+      h('img', { class: 'skill-icon', src: skillIcon(s) }),
+      h('div', { class: 'skill-info' },
+        h('div', { class: 'skill-head' },
+          h('span', { class: 'skill-name' }, s.name),
+          h('span', { class: `skill-tag ${s.kind}` }, kindTag),
+          h('span', { class: 'skill-lv' }, `Lv ${lv} / ${s.maxLevel}`),
+          h('span', { class: 'skill-pips' }, ...Array.from({ length: s.maxLevel }, (_, i) => h('i', { class: i < lv ? 'on' : '' })))),
+        h('div', { class: 'muted small' }, s.desc),
+        h('div', { class: 'skill-effects' },
+          h('div', { class: 'eff now' }, h('b', {}, lv ? `目前 Lv ${lv}` : '未學習'), ...now.map((l) => h('div', {}, l))),
+          h('div', { class: 'eff next' }, h('b', {}, lv < s.maxLevel ? `下一級 Lv ${lv + 1}` : '已達最高等級'), ...next.map((l) => h('div', {}, l)))),
+        s.requires?.length ? h('div', { class: `small ${reqOk ? 'req-ok' : 'req-lack'}` },
+          `前置：${s.requires.map((r) => `${SKILL_DB.get(r.skill)?.name} Lv${r.level}（目前 ${ch.skillLevel(r.skill)}）`).join('、')}`) : ''),
+      h('div', { class: 'skill-actions' }, learn, slotBtns));
+  }
+
   private useHotbar(i: number): void {
-    const it = this.player.inventory.items.find((x) => x.defId === HOTBAR[i]);
+    const id = this.cs.itemBar[i];
+    const it = id ? this.player.inventory.items.find((x) => x.defId === id) : undefined;
     if (it) this.useItem(it);
   }
 
@@ -654,21 +678,80 @@ export class Hud {
     if (def.levelReq) lines.push(`需要等級 ${def.levelReq}`);
     if (it?.cards.length) lines.push(`鑲嵌：${it.cards.map((c) => getDef(ITEM_DB, c).name).join('、')}`);
     if (it?.crafter) lines.push(`<span style="color:#ffd27f">製作者：${escapeHtml(it.crafter)}</span>`);
+    const worn = def.slot && this.cs.player ? this.cs.player.data.equipment[def.slot] : undefined;
+    if (def.slot && worn?.uid !== it?.uid) {
+      const diff = compareEquip(def, it, worn);
+      const wdef = worn ? getDef(ITEM_DB, worn.defId) : undefined;
+      lines.push(`<div class="tt-compare">與身上的${wdef ? `「${escapeHtml(itemDisplayName(wdef, worn!))}」` : '（空）'}比較：${diff.length
+        ? diff.map((d) => `<span class="${d.delta > 0 ? 'up' : 'down'}">${d.label} ${d.delta > 0 ? '▲' : '▼'}${Math.abs(d.delta)}</span>`).join('　')
+        : '<span class="muted">數值相同</span>'}</div>`);
+    }
     lines.push(`<div class="tt-desc">${escapeHtml(def.desc)}</div>`);
     const bindTxt = it?.bound || def.bind === 'bound' ? '<span style="color:#f88">已綁定（無法交易）</span>' : def.bind === 'bindOnEquip' ? '<span style="color:#fc8">裝備後綁定</span>' : '<span style="color:#8f8">可交易</span>';
     lines.push(`${bindTxt} · 重量 ${def.weight} · NPC 收購 ${fmt(def.sellPrice)}G`);
-    return lines.join('<br>');
+    return lines.map((l) => (l.startsWith('<div') ? l : `<div>${l}</div>`)).join('');
   }
 
-  private iconCell(def: ItemDef, it: ItemInstance | undefined, onclick?: () => void, selected = false): HTMLDivElement {
+  private iconCell(def: ItemDef, it: ItemInstance | undefined, onclick?: () => void, selected = false, primary?: () => void): HTMLDivElement {
     const cell = h('div', { class: `item-cell r${def.rarity}${selected ? ' selected' : ''}`, onclick },
       h('img', { src: itemIcon(def), draggable: 'false' }),
       it && it.qty > 1 ? h('span', { class: 'qty' }, String(it.qty)) : undefined,
       it && it.enchant > 0 ? h('span', { class: 'plus' }, `+${it.enchant}`) : undefined,
+      it && it.cards.length ? h('span', { class: 'card-dot', title: '已鑲嵌卡片' }) : undefined,
+      it && (it.bound || def.bind === 'bound') ? h('span', { class: 'bound-dot', title: '已綁定' }) : undefined,
     );
     cell.addEventListener('mousemove', (e) => this.showTooltip(e.clientX, e.clientY, this.itemTooltip(def, it)));
     cell.addEventListener('mouseleave', () => this.showTooltip(0, 0, undefined));
+    if (primary) {
+      cell.addEventListener('dblclick', () => { primary(); this.showTooltip(0, 0, undefined); this.markDirty(); });
+      cell.addEventListener('contextmenu', (e) => { e.preventDefault(); primary(); this.showTooltip(0, 0, undefined); this.markDirty(); });
+    }
     return cell;
+  }
+
+  private sortedItems(items: ItemInstance[]): ItemInstance[] {
+    const mode = this.cs.invSort;
+    if (mode === 'none') return items;
+    const key = (it: ItemInstance) => getDef(ITEM_DB, it.defId);
+    return [...items].sort((a, b) => {
+      const da = key(a);
+      const db = key(b);
+      if (mode === 'type') return (TYPE_ORDER[da.type] ?? 9) - (TYPE_ORDER[db.type] ?? 9) || db.rarity - da.rarity || da.name.localeCompare(db.name, 'zh-Hant');
+      if (mode === 'rarity') return db.rarity - da.rarity || (TYPE_ORDER[da.type] ?? 9) - (TYPE_ORDER[db.type] ?? 9) || da.name.localeCompare(db.name, 'zh-Hant');
+      return da.name.localeCompare(db.name, 'zh-Hant') || b.enchant - a.enchant;
+    });
+  }
+
+  private matchesSearch(def: ItemDef): boolean {
+    const q = this.invSearch.trim().toLowerCase();
+    return !q || def.name.toLowerCase().includes(q) || def.desc.toLowerCase().includes(q);
+  }
+
+  /** 雙擊 / 右鍵：倉庫開著 → 存入；消耗品 → 使用；裝備 → 穿上；卷軸 / 卡片 → 進入選擇目標 */
+  private primaryAction(it: ItemInstance): void {
+    const def = getDef(ITEM_DB, it.defId);
+    if (this.storagePanel.visible) return this.cs.send({ t: 'storageDeposit', uid: it.uid, qty: it.qty });
+    if (def.type === 'consumable') return this.useItem(it);
+    if (def.slot) return this.equip(it);
+    if (def.scroll && def.scroll !== 'protection') {
+      this.pending = { kind: 'enchant', uid: it.uid };
+      return;
+    }
+    if (def.type === 'card') this.pending = { kind: 'card', uid: it.uid };
+  }
+
+  private weightBar(): HTMLElement {
+    const ch = this.player;
+    const w = ch.inventory.totalWeight();
+    const cap = ch.derived().maxWeight;
+    const r = w / cap;
+    const tier = ch.weightTier();
+    const note = tier === 'overloaded' ? '無法戰鬥' : tier === 'heavy' ? '不會自然回復' : '';
+    return h('div', { class: `weight-bar ${tier}`, title: `負重 50% 以上停止自然回復；90% 以上無法戰鬥與採集` },
+      h('div', { class: 'wb-fill', style: `width:${Math.min(100, r * 100)}%` }),
+      h('i', { class: 'wb-mark', style: `left:${WEIGHT_NO_REGEN * 100}%` }),
+      h('i', { class: 'wb-mark', style: `left:${WEIGHT_NO_ACTION * 100}%` }),
+      h('span', { class: 'wb-text' }, `負重 ${fmt(w)} / ${fmt(cap)}　${Math.floor(r * 100)}%${note ? `　${note}` : ''}`));
   }
 
   private matchesFilter(def: ItemDef): boolean {
@@ -689,12 +772,31 @@ export class Hud {
         h('button', { class: `tab${this.invFilter === f ? ' active' : ''}`, onclick: () => (this.invFilter = f) },
           { all: '全部', equip: '裝備', use: '消耗', mat: '材料', etc: '卡片' }[f])),
     );
+    const search = h('input', { class: 'input inv-search', placeholder: '搜尋物品…', value: this.invSearch });
+    search.addEventListener('input', () => (this.invSearch = search.value));
+    search.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter' || e.key === 'Escape') {
+        search.blur();
+        this.markDirty();
+      }
+    });
+    search.addEventListener('blur', () => this.markDirty());
+    const sort = h('button', { class: 'btn btn-small', title: '切換排序方式（只影響顯示）', onclick: () => {
+      const order = ['none', 'type', 'rarity', 'name'] as const;
+      this.cs.setInvSort(order[(order.indexOf(this.cs.invSort) + 1) % order.length]);
+    } }, `排序：${SORT_LABEL[this.cs.invSort]}`);
     const grid = h('div', { class: 'item-grid' });
-    for (const it of inv.items) {
+    let shown = 0;
+    for (const it of this.sortedItems(inv.items)) {
       const def = getDef(ITEM_DB, it.defId);
-      if (!this.matchesFilter(def)) continue;
-      grid.appendChild(this.iconCell(def, it, () => this.onInventoryClick(it), it.uid === this.selectedUid));
+      if (!this.matchesFilter(def) || !this.matchesSearch(def)) continue;
+      shown++;
+      grid.appendChild(this.iconCell(def, it, () => this.onInventoryClick(it), it.uid === this.selectedUid, () => this.primaryAction(it)));
     }
+    // 「全部」分頁顯示空格，一眼看出還剩多少位置
+    if (this.invFilter === 'all' && !this.invSearch.trim()) for (let i = inv.usedSlots; i < inv.capacity; i++) grid.appendChild(h('div', { class: 'item-cell empty' }));
+    else if (!shown) grid.appendChild(h('div', { class: 'muted small grid-empty' }, '沒有符合的物品'));
     const sel = this.selectedUid ? inv.get(this.selectedUid) : undefined;
     let detail: HTMLElement | undefined;
     if (this.pending) {
@@ -702,16 +804,63 @@ export class Hud {
         h('button', { class: 'btn', onclick: () => (this.pending = undefined) }, '取消'));
     } else if (sel) {
       const def = getDef(ITEM_DB, sel.defId);
-      const actions: HTMLElement[] = [];
+      const actions: (HTMLElement | string)[] = [];
+      if (this.storagePanel.visible) {
+        actions.push(h('button', { class: 'btn btn-primary', onclick: () => this.cs.send({ t: 'storageDeposit', uid: sel.uid, qty: sel.qty }) }, sel.qty > 1 ? `全部存入倉庫（${sel.qty}）` : '存入倉庫'));
+        if (sel.qty > 1) actions.push(h('button', { class: 'btn', onclick: () => this.cs.send({ t: 'storageDeposit', uid: sel.uid, qty: 1 }) }, '存入 1 個'));
+      }
       if (def.type === 'consumable') actions.push(h('button', { class: 'btn btn-primary', onclick: () => this.useItem(sel) }, '使用'));
       if (def.slot) actions.push(h('button', { class: 'btn btn-primary', onclick: () => this.equip(sel) }, '裝備'));
       if (def.scroll && def.scroll !== 'protection') actions.push(h('button', { class: 'btn btn-primary', onclick: () => (this.pending = { kind: 'enchant', uid: sel.uid }) }, '強化裝備'));
       if (def.type === 'card') actions.push(h('button', { class: 'btn btn-primary', onclick: () => (this.pending = { kind: 'card', uid: sel.uid }) }, '鑲嵌卡片'));
-      actions.push(h('button', { class: 'btn btn-danger', onclick: () => void this.discard(sel) }, '丟棄'));
+      if (def.type === 'consumable') {
+        actions.push(h('span', { class: 'slot-btns', title: '放到快捷鍵 1~4（再按一次取消）' }, h('span', { class: 'muted small' }, '快捷'), ...[0, 1, 2, 3].map((i) => {
+          const on = this.cs.itemBar[i] === def.id;
+          return h('button', { class: `slot-btn${on ? ' on' : ''}`, onclick: () => { this.cs.setItemSlot(i, on ? null : def.id); } }, String(i + 1));
+        })));
+      }
+      if (sel.qty > 1) actions.push(h('button', { class: 'btn btn-danger', onclick: () => void this.discard(sel, 1) }, '丟棄 1 個'));
+      actions.push(h('button', { class: 'btn btn-danger', onclick: () => void this.discard(sel, sel.qty) }, sel.qty > 1 ? '全部丟棄' : '丟棄'));
       detail = h('div', { class: 'item-detail' }, h('div', { html: this.itemTooltip(def, sel) }), h('div', { class: 'actions' }, ...actions));
     }
-    this.inv.setTitle(`背包 ${inv.usedSlots}/${inv.capacity}`);
-    this.inv.set(tabs, grid, detail, h('div', { class: 'muted' }, `負重 ${fmt(inv.totalWeight())} / ${fmt(ch.derived().maxWeight)}　·　Z 撿取　·　點選物品查看操作`));
+    this.inv.setTitle(`背包 ${inv.usedSlots} / ${inv.capacity}`);
+    this.inv.set(
+      h('div', { class: 'inv-head' }, h('span', { class: 'gold-chip' }, h('img', { src: pixelIcon('coin', 2) }), fmt(ch.data.gold)), search, sort),
+      this.weightBar(),
+      tabs, grid, detail,
+      h('div', { class: 'muted small' }, '點一下看詳情 · 雙擊或右鍵：使用 / 裝備（倉庫開著時為存入）· Z 撿取'),
+    );
+  }
+
+  private renderStorage(): void {
+    const ch = this.player;
+    const st = ch.storage;
+    const grid = h('div', { class: 'item-grid storage-grid' });
+    for (const it of this.sortedItems(st.items)) {
+      const def = getDef(ITEM_DB, it.defId);
+      if (!this.matchesSearch(def)) continue;
+      grid.appendChild(this.iconCell(def, it, () => (this.storageSel = it.uid), it.uid === this.storageSel,
+        () => this.cs.send({ t: 'storageWithdraw', uid: it.uid, qty: it.qty })));
+    }
+    if (!st.items.length) grid.appendChild(h('div', { class: 'muted small grid-empty' }, '倉庫是空的。在背包裡雙擊或右鍵物品即可存入。'));
+    const sel = this.storageSel ? st.get(this.storageSel) : undefined;
+    const detail = sel
+      ? h('div', { class: 'item-detail' }, h('div', { html: this.itemTooltip(getDef(ITEM_DB, sel.defId), sel) }),
+          h('div', { class: 'actions' },
+            h('button', { class: 'btn btn-primary', onclick: () => this.cs.send({ t: 'storageWithdraw', uid: sel.uid, qty: sel.qty }) }, sel.qty > 1 ? `全部取出（${sel.qty}）` : '取出'),
+            sel.qty > 1 ? h('button', { class: 'btn', onclick: () => this.cs.send({ t: 'storageWithdraw', uid: sel.uid, qty: 1 }) }, '取出 1 個') : ''))
+      : undefined;
+    const mats = ch.inventory.items.filter((it) => getDef(ITEM_DB, it.defId).type === 'material');
+    this.storagePanel.setTitle(`倉庫 ${st.usedSlots} / ${st.capacity}`);
+    this.storagePanel.set(
+      h('div', { class: 'inv-head' },
+        h('button', { class: 'btn btn-small', disabled: !mats.length, title: '把背包裡的所有材料存進倉庫', onclick: () => {
+          for (const it of mats.slice(0, 30)) this.cs.send({ t: 'storageDeposit', uid: it.uid, qty: it.qty });
+        } }, `材料全部存入（${mats.length}）`),
+        h('span', { class: 'muted small' }, '不計負重 · 背包的搜尋也會套用在這裡')),
+      grid, detail,
+      h('div', { class: 'muted small' }, '雙擊或右鍵：取出整疊'),
+    );
   }
 
   private onInventoryClick(it: ItemInstance): void {
@@ -745,11 +894,11 @@ export class Hud {
     this.selectedUid = undefined;
   }
 
-  private async discard(it: ItemInstance): Promise<void> {
+  private async discard(it: ItemInstance, qty: number): Promise<void> {
     const def = getDef(ITEM_DB, it.defId);
-    if (!(await ask(this.root, `確定要丟棄 <b>${def.name}</b> x${it.qty} 嗎？（無法復原）`, '丟棄'))) return;
-    this.cs.send({ t: 'discard', uid: it.uid, qty: it.qty });
-    this.selectedUid = undefined;
+    if (!(await ask(this.root, `確定要丟棄 <b>${def.name}</b> x${qty} 嗎？（無法復原）`, '丟棄'))) return;
+    this.cs.send({ t: 'discard', uid: it.uid, qty });
+    if (qty >= it.qty) this.selectedUid = undefined;
     this.markDirty();
   }
 
@@ -791,42 +940,71 @@ export class Hud {
     const jb = ch.jobBonus();
     const statRows = STAT_KEYS.map((k) => {
       const cost = statRaiseCost(ch.data.stats[k]);
+      const extra = d.totalStats[k] - ch.data.stats[k] - jb[k];
+      const btn = h('button', {
+        class: 'btn btn-small stat-plus', disabled: p.statPoints < cost,
+        onclick: (e: Event) => {
+          // Shift：一次加到 5 點（伺服器每次都會重新檢查點數）
+          let left = p.statPoints;
+          let v = ch.data.stats[k];
+          const n = (e as MouseEvent).shiftKey ? 5 : 1;
+          for (let i = 0; i < n && left >= statRaiseCost(v); i++) {
+            left -= statRaiseCost(v);
+            v++;
+            this.cs.send({ t: 'raiseStat', stat: k });
+          }
+        },
+      }, `+ ${cost}`);
+      btn.addEventListener('mousemove', (e) => {
+        const lines = statPreview(ch, k);
+        this.showTooltip(e.clientX, e.clientY, `<div class="tt-name">${STAT_NAMES[k]} +1（花 ${cost} 點）</div>${lines.map((l) => `${l.label}　${l.from} → <span class="up">${l.to}</span>`).join('<br>') || '<span class="muted">沒有立即變化</span>'}<div class="tt-desc">Shift + 點擊一次加 5 點</div>`);
+      });
+      btn.addEventListener('mouseleave', () => this.showTooltip(0, 0, undefined));
       return h('tr', {},
         h('td', {}, STAT_NAMES[k]),
-        h('td', { class: 'num' }, String(ch.data.stats[k]), jb[k] ? h('span', { class: 'bonus' }, ` +${jb[k]}`) : undefined, d.totalStats[k] - ch.data.stats[k] - jb[k] ? h('span', { class: 'bonus2' }, ` +${d.totalStats[k] - ch.data.stats[k] - jb[k]}`) : undefined),
-        h('td', {}, h('button', { class: 'btn btn-small', disabled: p.statPoints < cost, onclick: () => this.cs.send({ t: 'raiseStat', stat: k }) }, `+ (${cost})`)),
-      );
+        h('td', { class: 'num' }, String(ch.data.stats[k]), jb[k] ? h('span', { class: 'bonus', title: 'Job 加成' }, ` +${jb[k]}`) : undefined, extra ? h('span', { class: 'bonus2', title: '裝備 / 技能加成' }, ` +${extra}`) : undefined),
+        h('td', {}, btn));
     });
-    const derived = [
-      ['ATK', d.atk], ['MATK', d.matk], ['DEF', d.def], ['HIT', d.hit], ['FLEE', d.flee], ['爆擊', `${d.critPct.toFixed(1)}%`],
-      ['攻速', `${d.attacksPerSec.toFixed(2)}/秒`], ['掉寶加成', `${d.dropBonusPct}%`],
+    const derived: [string, string, string][] = [
+      ['最大 HP', fmt(d.maxHp), ''], ['最大 SP', fmt(d.maxSp), ''],
+      ['ATK', String(d.atk), '物理攻擊（STR、武器、強化）'], ['MATK', String(d.matk), '魔法攻擊（INT）'],
+      ['DEF', String(d.def), '減傷（防具、強化、VIT）'], ['命中', String(d.hit), 'DEX、等級'], ['迴避', String(d.flee), 'AGI、等級'],
+      ['爆擊', `${d.critPct.toFixed(1)}%`, 'LUK'], ['攻速', `${d.attacksPerSec.toFixed(2)}/秒`, 'AGI、DEX'],
+      ['負重上限', fmt(d.maxWeight), '2000 + STR × 30'], ['掉寶加成', `${d.dropBonusPct}%`, '特定飾品、卡片'],
     ];
-    const equipRows = (Object.keys(SLOT_NAMES) as EquipSlot[]).map((slot) => {
+    const slotOrder: EquipSlot[] = ['helm', 'weapon', 'armor', 'shield', 'boots', 'accessory'];
+    const equipGrid = h('div', { class: 'equip-grid' }, ...slotOrder.map((slot) => {
       const it = ch.data.equipment[slot];
       const def = it ? getDef(ITEM_DB, it.defId) : undefined;
-      const cell = def && it ? this.iconCell(def, it) : h('div', { class: 'item-cell empty' });
-      return h('div', { class: 'equip-row' }, h('span', { class: 'slot-name' }, SLOT_NAMES[slot]), cell,
-        h('span', { style: def ? `color:${RARITY_INFO[def.rarity].color}` : 'color:#777' }, def && it ? itemDisplayName(def, it) : '—'),
-        it ? h('button', { class: 'btn btn-small', onclick: () => this.cs.send({ t: 'unequip', slot }) }, '卸下') : undefined);
-    });
+      const cell = def && it
+        ? this.iconCell(def, it, undefined, false, () => this.cs.send({ t: 'unequip', slot }))
+        : h('div', { class: 'item-cell empty' });
+      return h('div', { class: `equip-slot${it ? '' : ' vacant'}` },
+        h('span', { class: 'slot-name' }, SLOT_NAMES[slot]), cell,
+        h('span', { class: 'equip-name', style: def ? `color:${RARITY_INFO[def.rarity].color}` : '' }, def && it ? itemDisplayName(def, it) : '未裝備'));
+    }));
     const job = ch.canChangeJob()
-      ? h('div', { class: 'job-change' }, h('b', {}, ch.classDef.tier === 1 ? '二轉：' : '轉職：'), ...ch.jobChoices().map((id) =>
+      ? h('div', { class: 'job-change' }, h('b', {}, ch.classDef.tier === 1 ? '可以二轉了：' : '可以轉職了：'), ...ch.jobChoices().map((id) =>
           h('button', { class: 'btn btn-primary', title: CLASSES[id].desc, onclick: () => void this.changeJob(id) }, CLASSES[id].name)))
       : undefined;
     const ls = ch.data.lifeSkills;
     this.stats.set(
-      h('div', { class: 'muted' }, `${ch.classDef.name} — ${ch.classDef.desc}`),
       job,
-      h('div', { class: 'cols' },
-        h('table', { class: 'stat-table' }, ...statRows, h('tr', {}, h('td', { colspan: 3, class: 'muted' }, `剩餘素質點：${p.statPoints}`))),
-        h('table', { class: 'stat-table' }, ...derived.map(([k, v]) => h('tr', {}, h('td', {}, String(k)), h('td', { class: 'num' }, String(v))))),
-      ),
-      h('h4', {}, '裝備'),
-      ...equipRows,
-      h('h4', {}, '生活技能'),
-      h('div', { class: 'life-skills' }, ...(Object.entries(ls) as [string, { level: number; exp: number }][]).map(([k, s]) =>
-        h('div', {}, `${{ mining: '採礦', woodcutting: '伐木', smithing: '鍛造', carpentry: '木工', alchemy: '鍊金' }[k]} Lv ${s.level}`,
-          bar(s.exp / lifeSkillExpToNext(s.level), 'exp small', '')))),
+      h('div', { class: 'char-cols' },
+        h('div', { class: 'char-left' },
+          h('div', { class: 'char-id' },
+            h('img', { class: 'char-face', src: facePortrait(ch.data.classId, 48) }),
+            h('div', {}, h('div', { class: 'char-name' }, ch.name), h('div', { class: 'muted small' }, `${ch.classDef.name} · Base Lv ${p.baseLevel} · Job Lv ${p.jobLevel}`),
+              h('div', { class: 'muted small' }, ch.classDef.desc))),
+          h('table', { class: 'stat-table' }, ...statRows),
+          h('div', { class: `stat-points${p.statPoints ? ' has' : ''}` }, `剩餘素質點：${p.statPoints}`, h('span', { class: 'muted small' }, '　滑鼠移到 + 可預覽')),
+          h('h4', {}, '裝備', h('span', { class: 'muted small' }, '　雙擊或右鍵卸下')),
+          equipGrid),
+        h('div', { class: 'char-right' },
+          h('table', { class: 'stat-table derived' }, ...derived.map(([k, v, tip]) => h('tr', { title: tip }, h('td', {}, k), h('td', { class: 'num' }, v)))),
+          h('h4', {}, '生活技能'),
+          h('div', { class: 'life-skills' }, ...(Object.entries(ls) as [string, { level: number; exp: number }][]).map(([k, s]) =>
+            h('div', { class: 'life-row' }, h('span', {}, `${DERIVED_NAMES[k]} Lv ${s.level}`), bar(s.exp / lifeSkillExpToNext(s.level), 'exp small', '')))))),
     );
   }
 
@@ -920,6 +1098,10 @@ export class Hud {
     if (id === 'shop') this.shop.show();
     if (id === 'market') this.market.show();
     if (id === 'guide') this.help.show();
+    if (id === 'storage') {
+      this.storagePanel.show();
+      this.inv.show();
+    }
     this.markDirty();
   }
 

@@ -46,6 +46,47 @@ export class ClientState {
       /* ignore */
     }
   }
+  /** 物品快捷列（第 1~4 格）：放消耗品 id，存在本機設定 */
+  itemBar: (string | null)[] = ClientState.loadBar('roe:itembar', ['red_potion', 'orange_potion', 'white_potion', 'blue_potion']);
+
+  private static loadBar(key: string, fallback: (string | null)[]): (string | null)[] {
+    try {
+      const raw = JSON.parse(localStorage.getItem(key) ?? 'null');
+      if (Array.isArray(raw)) return [0, 1, 2, 3].map((i) => (typeof raw[i] === 'string' ? raw[i] : null));
+    } catch {
+      /* ignore */
+    }
+    return fallback;
+  }
+
+  setItemSlot(slot: number, itemId: string | null): void {
+    this.itemBar = this.itemBar.map((s, i) => (i === slot ? itemId : s === itemId ? null : s));
+    try {
+      localStorage.setItem('roe:itembar', JSON.stringify(this.itemBar));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 背包排序方式與搜尋字（只影響顯示，不改變伺服器上的順序） */
+  invSort: 'none' | 'type' | 'rarity' | 'name' = (() => {
+    try {
+      const v = localStorage.getItem('roe:invsort');
+      return v === 'type' || v === 'rarity' || v === 'name' ? v : 'none';
+    } catch {
+      return 'none';
+    }
+  })();
+
+  setInvSort(v: ClientState['invSort']): void {
+    this.invSort = v;
+    try {
+      localStorage.setItem('roe:invsort', v);
+    } catch {
+      /* ignore */
+    }
+  }
+
   private uids = new UidGen('client');
 
   constructor(readonly net: Connection) {}

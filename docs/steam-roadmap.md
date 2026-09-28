@@ -57,6 +57,5 @@ tools/      掉寶平衡報表
 1. **⏰ 提醒：用「自己的電腦 + Cloudflare Tunnel」開始封閉測試**（`npm run host` + `cloudflared tunnel --url http://localhost:8787`，步驟見 [部署手冊第 0 節](deploy.md#0-快速封測自己的電腦--cloudflare-tunnel免費)）
 2. 美術：替換管線已完成（見 [美術指南](../art/README.md)）。找美術用 Blockbench 製作 50 張方塊材質、9 個職業、22 種怪物、3 個 NPC 模型，放進 `art/` 即可
 3. 租一台主機照 [部署手冊](deploy.md) 架起測試伺服器
-4. 介面打磨（進行中）：背包排序 / 搜尋 / 雙擊使用 / 可自訂快捷 1~4、倉庫視窗、技能「目前 → 下一級」數值、二轉技能預覽、角色視窗雙欄與加點預覽（`src/game/describe.ts` 已完成）
-5. 內容：第四張地圖（Lv 90~99）、副本型地下城（隊伍專屬、限時）
-6. 找 10~20 位玩家做封閉測試，用 `npm run sim:drops`、`npm run sim:leveling` 的報表對照真實數據
+4. 內容：第四張地圖（Lv 90~99）、副本型地下城（隊伍專屬、限時）
+5. 找 10~20 位玩家做封閉測試，用 `npm run sim:drops`、`npm run sim:leveling` 的報表對照真實數據

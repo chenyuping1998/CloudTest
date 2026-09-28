@@ -391,3 +391,62 @@ b { font-weight: normal; }
 .buff { position: relative; width: 28px; height: 28px; background: var(--slate-3); border: 1px solid var(--gold-lo); }
 .buff img { width: 24px; height: 24px; margin: 1px; }
 .buff span { position: absolute; right: 1px; bottom: -2px; font-size: 12px; text-shadow: 1px 1px 0 #000, -1px -1px 0 #000; }
+
+/* ---------- 背包 / 倉庫 ---------- */
+.inv-head { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.inv-search { flex: 1; min-width: 0; padding: 3px 6px; }
+.gold-chip { display: inline-flex; align-items: center; gap: 3px; color: #ffd24a; padding: 1px 6px 1px 2px; background: var(--slate-3); border: 1px solid var(--gold-lo); white-space: nowrap; }
+.gold-chip img { width: 16px; height: 16px; }
+.weight-bar { position: relative; height: 16px; margin-bottom: 8px; background: var(--slate-3); border: 2px solid #000; box-shadow: 0 0 0 1px var(--line); }
+.wb-fill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(#6fb04a, #3f7a2a); }
+.weight-bar.heavy .wb-fill { background: linear-gradient(#e0b040, #a0741a); }
+.weight-bar.overloaded .wb-fill { background: linear-gradient(#e0543a, #9a2a1a); animation: flicker 0.8s infinite alternate; }
+@keyframes flicker { to { opacity: 0.6; } }
+.wb-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--gold-hi); opacity: 0.7; }
+.wb-text { position: relative; padding-left: 6px; line-height: 12px; font-size: 12px; text-shadow: 1px 1px 0 #000; white-space: nowrap; }
+.item-cell .card-dot, .item-cell .bound-dot { position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border: 1px solid #000; }
+.item-cell .card-dot { background: #b366ff; }
+.item-cell .bound-dot { top: auto; bottom: 3px; left: 3px; right: auto; background: #f66; }
+.grid-empty { grid-column: 1 / -1; padding: 12px; text-align: center; }
+.storage-grid { max-height: 330px; }
+.slot-btns { display: inline-flex; gap: 2px; align-items: center; }
+.slot-btn { width: 22px; height: 22px; padding: 0; background: var(--slate-3); color: var(--muted); border: 1px solid var(--line); cursor: pointer; font-family: var(--font); }
+.slot-btn:hover { color: var(--ink); border-color: var(--gold-lo); }
+.slot-btn.on { background: #3a2a08; color: var(--gold-hi); border-color: var(--gold); }
+.tt-compare { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--line); }
+.up { color: var(--ok); } .down { color: var(--lack); }
+
+/* ---------- 技能視窗 ---------- */
+.skill-help { margin-bottom: 4px; }
+.skill-section h4 { margin-top: 10px; }
+.skill-row { align-items: flex-start; }
+.skill-row.locked { opacity: 0.55; filter: grayscale(0.5); }
+.skill-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.skill-tag { font-size: 12px; padding: 0 4px; border: 1px solid var(--line); color: #9fe0ff; }
+.skill-tag.passive { color: #b9e08f; }
+.skill-pips { display: inline-flex; gap: 2px; margin-left: auto; }
+.skill-pips i { width: 6px; height: 8px; background: #2a2433; border: 1px solid #000; }
+.skill-pips i.on { background: var(--gold); }
+.skill-effects { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 2px; }
+.eff { padding: 3px 6px; background: rgba(0, 0, 0, 0.25); border-left: 2px solid var(--line); font-size: 12px; line-height: 1.6; }
+.eff b { display: block; color: var(--ink-dim); font-weight: normal; }
+.eff.next { border-left-color: var(--gold-lo); color: #ffe7a0; }
+.req-ok { color: var(--ok); } .req-lack { color: var(--lack); }
+.skill-actions { align-items: flex-end; min-width: 108px; }
+
+/* ---------- 角色視窗 ---------- */
+.char-cols { display: grid; grid-template-columns: 1fr 230px; gap: 12px; }
+.char-id { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.char-face { width: 48px; height: 48px; border: 2px solid var(--gold-lo); background: #000; }
+.char-name { color: var(--gold-hi); font-size: 14px; }
+.stat-plus { min-width: 44px; }
+.stat-points { margin: 4px 0 2px; color: var(--muted); }
+.stat-points.has { color: var(--gold-hi); }
+.stat-table.derived td { padding: 2px 6px; }
+.equip-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.equip-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--line); text-align: center; }
+.equip-slot.vacant { opacity: 0.6; }
+.equip-slot .slot-name { width: auto; font-size: 12px; }
+.equip-name { font-size: 12px; line-height: 1.3; min-height: 2.6em; }
+.life-skills { grid-template-columns: 1fr; gap: 3px; }
+.life-row { display: grid; grid-template-columns: 80px 1fr; align-items: center; gap: 6px; }
