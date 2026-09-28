@@ -6,6 +6,8 @@ import { ITEM_DB } from './data';
 import { Hud } from './game/hud';
 import { h } from './game/ui';
 import { World } from './game/world';
+import { audio } from './game/audio';
+import { settings } from './game/settings';
 import { ClientState } from './client/ClientState';
 import { LocalConnection, WsConnection, type Connection } from './net/connection';
 import { PROTOCOL_VERSION, type ServerMsg } from './net/protocol';
@@ -53,6 +55,28 @@ function titleLandscape(): HTMLCanvasElement {
 }
 
 /** 預設伺服器：透過 HTTPS 開啟網頁版時走同網域的 /ws（Caddy 反向代理）；否則連本機開發伺服器 */
+/** 依戰鬥 / 採集事件播放音效（距離越遠越小聲；受傷只播自己的） */
+function fxSound(msg: Extract<ServerMsg, { t: 'fx' }>, dist: number): void {
+  switch (msg.kind) {
+    case 'dmg': return audio.play('hit', dist);
+    case 'crit': return audio.play('crit', dist);
+    case 'miss': return audio.play('miss', dist);
+    case 'hurt': return msg.target === gameState?.myId ? audio.play('hurt') : undefined;
+    case 'heal': return audio.play('heal', dist);
+    case 'levelup': return audio.play('levelup', dist);
+    case 'poof': return audio.play('death', dist);
+    case 'chips': return audio.play(msg.y > 1 ? 'chop' : 'mine', dist);
+    case 'skill': return audio.play(`skill_${(msg.element ?? 'physical') as 'physical'}`, dist);
+    default: return undefined;
+  }
+}
+
+let gameState: { myId: number } | undefined;
+
+// 瀏覽器規定使用者操作後才能發聲：第一次點擊 / 按鍵時啟動音效
+for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => audio.unlock(), { capture: true });
+settings.subscribe(() => audio.applyVolumes());
+
 const DEFAULT_SERVER = location.protocol === 'https:' ? `wss://${location.host}/ws` : `ws://${location.hostname || 'localhost'}:8787`;
 
 /** 上次連的伺服器；Cloudflare 快速通道每次重開網址都會變，記住的舊通道網址直接作廢 */
@@ -145,6 +169,7 @@ function titleScreen(error?: string): void {
 
 function startGame(conn: Connection, name: string, password: string | undefined, onError: (reason: string) => void, steamTicket?: string): void {
   const cs = new ClientState(conn);
+  gameState = cs;
   let world: World | undefined;
   let hud: Hud | undefined;
   let started = false;
@@ -192,7 +217,7 @@ function startGame(conn: Connection, name: string, password: string | undefined,
       requestAnimationFrame(loop);
     };
     loop();
-    (window as unknown as { game: unknown }).game = { cs, world, hud, conn };
+    (window as unknown as { game: unknown }).game = { cs, world, hud, conn, audio };
   };
 
   // 在收到 welcome 之前先暫存訊息（zone / self 會緊接著 welcome 送來）
@@ -206,12 +231,18 @@ function startGame(conn: Connection, name: string, password: string | undefined,
       case 'skillUsed':
         cs.cooldowns.set(msg.skill, { until: performance.now() + msg.cooldownMs, total: Math.max(1, msg.cooldownMs) });
         break;
+      case 'sfx':
+        audio.play(msg.name);
+        break;
       case 'achievement':
+        audio.play('achievement');
         hud.achievement(msg.name, msg.desc);
         platform.unlockAchievement(msg.id);
         break;
       case 'zone':
         platform.setStatus(`${msg.zone === 'homestead' ? '在家園經營' : `在${ZONE_NAMES[msg.zone]}冒險`}`);
+        if (cs.zone !== msg.zone || cs.zoneOwner !== msg.owner) audio.play('portal');
+        audio.playMusic(msg.zone);
         cs.zone = msg.zone;
         cs.zoneOwner = msg.owner;
         if (msg.homestead) cs.setHome(msg.homestead);
@@ -219,8 +250,11 @@ function startGame(conn: Connection, name: string, password: string | undefined,
         hud.closeZonePanels();
         hud.markDirty();
         break;
-      case 'snap':
       case 'fx':
+        fxSound(msg, world.distanceFromView(msg.x, msg.z));
+        world.apply(msg);
+        break;
+      case 'snap':
         world.apply(msg);
         break;
       case 'self':
@@ -232,6 +266,8 @@ function startGame(conn: Connection, name: string, password: string | undefined,
         hud.markDirty();
         break;
       case 'log':
+        // 紅字 = 操作被拒絕
+        if (msg.color === '#f99' || msg.color === '#f66') audio.play('error');
         hud.log(msg.msg, msg.color);
         break;
       case 'announce':

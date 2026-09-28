@@ -22,6 +22,7 @@ import {
 import { applyModelOverride } from './voxel/modelOverrides';
 import { tickMaterials } from './voxel/mesher';
 import { Terrain } from './voxel/terrain';
+import { settings, type Settings } from './settings';
 
 export type { ZoneId, NpcId };
 
@@ -143,7 +144,7 @@ export class World {
     private readonly ev: WorldEvents,
   ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.get().renderScale);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -176,6 +177,8 @@ export class World {
     this.scene.add(this.clickMarker);
     this.resize();
     window.addEventListener('resize', () => this.resize());
+    settings.subscribe((st) => this.applySettings(st));
+    this.applySettings(settings.get());
   }
 
   // ============================================================ 伺服器訊息
@@ -447,6 +450,7 @@ export class World {
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       this.snow = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffa040, size: 0.1, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
       this.snowFall = -1.1;
+      this.snow.visible = settings.get().weather;
       this.zoneRoot.add(this.snow);
     } else if (zone === 'frost') {
       this.snowFall = 2.2;
@@ -461,6 +465,7 @@ export class World {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       this.snow = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.12, transparent: true, opacity: 0.9, depthWrite: false }));
+      this.snow.visible = settings.get().weather;
       this.zoneRoot.add(this.snow);
     }
     for (let i = 0; i < (zone === 'ember' ? 0 : 14); i++) {
@@ -488,6 +493,19 @@ export class World {
   }
 
   // ============================================================ 輸入
+
+  /** 玩家設定：陰影、解析度、天氣粒子 */
+  private applySettings(st: Settings): void {
+    this.sun.castShadow = st.shadows;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * st.renderScale);
+    this.resize();
+    if (this.snow) this.snow.visible = st.weather;
+  }
+
+  /** 與畫面中心（玩家附近）的水平距離，給音效做遠近衰減 */
+  distanceFromView(x: number, z: number): number {
+    return Math.hypot(x - this.camTarget.x, z - this.camTarget.z);
+  }
 
   resize(): void {
     const w = this.container.clientWidth;

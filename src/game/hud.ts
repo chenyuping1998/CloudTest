@@ -16,6 +16,8 @@ import { SKILL_DB, type SkillDef } from '../data/skills';
 import { pixelIcon } from './pixelIcons';
 import { facePortrait } from './voxel/models';
 import { compareEquip, skillEffectLines, statPreview } from './describe';
+import { audio } from './audio';
+import { settings } from './settings';
 import { WEIGHT_NO_ACTION, WEIGHT_NO_REGEN } from '../core/character';
 import { SECOND_JOB_OF } from '../data/classes';
 import { ask, bar, fmt, h, Panel } from './ui';
@@ -54,6 +56,7 @@ export class Hud {
   private tradePanel: Panel;
   private skillsPanel: Panel;
   private storagePanel: Panel;
+  private settingsPanel: Panel;
   private invSearch = '';
   private storageSel?: string;
   private chatInput: HTMLInputElement;
@@ -99,6 +102,7 @@ export class Hud {
       menuBtn('home', '家園', 'H', () => this.home),
       menuBtn('book', '掉寶表', 'D', () => this.drops),
       menuBtn('help', '說明', 'F1', () => this.help),
+      menuBtn('gear', '設定', 'O', () => this.settingsPanel),
     );
     this.minimap = h('canvas', { class: 'minimap-canvas', width: 180, height: 180 });
     this.minimapZone = h('div', { class: 'minimap-zone' });
@@ -116,6 +120,11 @@ export class Hud {
     this.onlineEl = h('span', { class: 'online-count' });
     const logBox = h('div', { class: 'hud-logbox frame' }, h('div', { class: 'logbox-title' }, '訊息', this.onlineEl), this.logEl, this.chatInput);
     root.addEventListener('mousedown', () => (this.pointerDown = true));
+    settings.subscribe(() => this.markDirty());
+    // 介面按鈕的點擊聲
+    root.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('button:not([disabled]), .tab, .item-cell:not(.empty)')) audio.play('ui');
+    });
     window.addEventListener('mouseup', () => (this.pointerDown = false));
     root.append(this.labelLayer, this.floatLayer, this.status, this.partyEl, menu, minimapBox, logBox, this.announceEl, this.hotbar, this.tooltip);
 
@@ -128,11 +137,12 @@ export class Hud {
     this.help = new Panel(root, '遊戲說明', { x: 380, y: 60, w: 520 });
     this.drops = new Panel(root, '怪物掉寶表', { x: 380, y: 60, w: 520 });
     this.skillsPanel = new Panel(root, '技能', { x: 360, y: 60, w: 600 });
+    this.settingsPanel = new Panel(root, '設定', { x: window.innerWidth / 2 - 190, y: 100, w: 380 });
     this.storagePanel = new Panel(root, '倉庫', { x: window.innerWidth - 880, y: 70, w: 420 });
     this.tradePanel = new Panel(root, '交易', { x: 360, y: 90, w: 560 }, () => {
       if (this.cs.trade) this.cs.send({ t: 'tradeCancel' });
     });
-    for (const p of [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.tradePanel, this.skillsPanel, this.storagePanel]) {
+    for (const p of [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.tradePanel, this.skillsPanel, this.storagePanel, this.settingsPanel]) {
       p.body.addEventListener('click', () => this.markDirty());
     }
   }
@@ -153,11 +163,11 @@ export class Hud {
   }
 
   anyPanelOpen(): boolean {
-    return [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel].some((p) => p.visible);
+    return [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel, this.settingsPanel].some((p) => p.visible);
   }
 
   closeTopPanel(): boolean {
-    const open = [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel]
+    const open = [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel, this.settingsPanel]
       .filter((p) => p.visible)
       .sort((a, b) => Number(b.el.style.zIndex) - Number(a.el.style.zIndex));
     if (!open.length) return false;
@@ -174,7 +184,7 @@ export class Hud {
   }
 
   key(k: string): void {
-    const map: Record<string, Panel> = { i: this.inv, s: this.stats, h: this.home, d: this.drops, f1: this.help, k: this.skillsPanel };
+    const map: Record<string, Panel> = { i: this.inv, s: this.stats, h: this.home, d: this.drops, f1: this.help, k: this.skillsPanel, o: this.settingsPanel };
     const p = map[k];
     if (p) this.toggle(p);
     const idx = ['1', '2', '3', '4'].indexOf(k);
@@ -292,6 +302,7 @@ export class Hud {
     draw(this.drops, () => this.renderDrops());
     draw(this.skillsPanel, () => this.renderSkills());
     draw(this.storagePanel, () => this.renderStorage());
+    draw(this.settingsPanel, () => this.renderSettings());
   }
 
   // ------------------------------------------------------------ 多人：聊天、交易
@@ -829,6 +840,41 @@ export class Hud {
       this.weightBar(),
       tabs, grid, detail,
       h('div', { class: 'muted small' }, '點一下看詳情 · 雙擊或右鍵：使用 / 裝備（倉庫開著時為存入）· Z 撿取'),
+    );
+  }
+
+  private renderSettings(): void {
+    const st = settings.get();
+    const slider = (label: string, key: 'master' | 'music' | 'sfx') => {
+      const input = h('input', { type: 'range', min: 0, max: 100, value: Math.round(st[key] * 100), class: 'range' });
+      const val = h('span', { class: 'range-val' }, `${Math.round(st[key] * 100)}%`);
+      input.addEventListener('input', () => {
+        val.textContent = `${input.value}%`;
+        settings.set({ [key]: Number(input.value) / 100 });
+      });
+      input.addEventListener('change', () => {
+        input.blur();
+        audio.play(key === 'music' ? 'ui' : 'coin');
+      });
+      return h('div', { class: 'setting-row' }, h('span', {}, label), input, val);
+    };
+    const toggle = (label: string, key: 'muted' | 'shadows' | 'weather', desc: string) =>
+      h('div', { class: 'setting-row' }, h('span', { title: desc }, label),
+        h('button', { class: `btn btn-small toggle${st[key] ? ' on' : ''}`, onclick: () => settings.set({ [key]: !st[key] }) }, st[key] ? '開' : '關'),
+        h('span', { class: 'muted small' }, desc));
+    const scales = [0.5, 0.75, 1, 1.5];
+    this.settingsPanel.set(
+      h('h4', {}, '聲音'),
+      slider('主音量', 'master'), slider('音樂', 'music'), slider('音效', 'sfx'),
+      toggle('靜音', 'muted', '暫時關閉所有聲音'),
+      h('h4', {}, '畫面'),
+      toggle('即時陰影', 'shadows', '關閉可大幅提升低階電腦的流暢度'),
+      toggle('天氣粒子', 'weather', '霜語山脈的雪、餘燼深淵的火星'),
+      h('div', { class: 'setting-row' }, h('span', {}, '繪圖解析度'),
+        h('div', { class: 'seg' }, ...scales.map((v) => h('button', { class: `btn btn-small${st.renderScale === v ? ' on' : ''}`, onclick: () => settings.set({ renderScale: v }) }, `${v * 100}%`)))),
+      h('div', { class: 'setting-row' }, h('span', {}, '全螢幕'),
+        h('button', { class: 'btn btn-small', onclick: () => void (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()) }, '切換（F11）')),
+      h('div', { class: 'muted small', style: 'margin-top:8px' }, '設定會記在這台電腦上。音樂與音效都是即時合成的暫代版本，之後會換成正式配樂。'),
     );
   }
 

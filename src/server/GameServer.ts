@@ -1145,6 +1145,7 @@ export class GameServer {
     }
     z.items.splice(z.items.indexOf(gi), 1);
     this.log(p, `獲得 ${def.name} x${gi.item.qty}`, RARITY_INFO[def.rarity].color);
+    p.conn.send({ t: 'sfx', name: def.rarity >= Rarity.Epic ? 'rare' : 'pickup' });
     this.markSelf(p);
   }
 
@@ -1345,13 +1346,16 @@ export class GameServer {
       const gain = res.newLevel - target.enchant;
       target.enchant = res.newLevel;
       if (res.newLevel >= 7) this.achieve(p, 'ENCHANT_7');
+      p.conn.send({ t: 'sfx', name: 'enchantOk' });
       this.announce(p, `${tdef.name} 發出${gain > 1 ? '耀眼的' : '一陣'}${kind === 'weapon' ? '藍色' : '銀色'}光芒！（+${res.newLevel}）`, '#8cf');
       if (res.newLevel >= safe + 3) this.broadcastAnnounce(`【全服公告】${p.name} 成功將 ${tdef.name} 強化到 +${res.newLevel}！`, '#ff9f1a');
     } else if (res.outcome === 'downgraded') {
       target.enchant = res.newLevel;
+      p.conn.send({ t: 'sfx', name: 'enchantFail' });
       this.announce(p, `強化失敗… 保護卷軸發揮效果，${tdef.name} 變為 +${res.newLevel}。`, '#fc8');
     } else if (res.outcome === 'destroyed') {
       ch.inventory.take(target.uid, 1);
+      p.conn.send({ t: 'sfx', name: 'enchantFail' });
       this.audit('enchant_destroyed', p.name, { uid: target.uid, defId: target.defId, from: target.enchant });
       this.announce(p, `${tdef.name} 發出強烈的黑色光芒後蒸發了…`, '#f66');
     }
@@ -1392,6 +1396,7 @@ export class GameServer {
     const def = getDef(ITEM_DB, it.defId);
     const n = Math.min(Math.max(1, Math.floor(qty)), it.qty);
     const gold = p.ch.sellToNpc(uid, n);
+    p.conn.send({ t: 'sfx', name: 'coin' });
     this.log(p, `賣出 ${def.name} x${n}，獲得 ${gold.toLocaleString()}G`, '#ffd24a');
     this.markSelf(p);
   }
@@ -1415,6 +1420,7 @@ export class GameServer {
         if (seller) this.achieve(seller, 'FIRST_TRADE');
         this.audit('market_sale', p.name, r.sale);
         if (seller) {
+          seller.conn.send({ t: 'sfx', name: 'coin' });
           this.announce(seller, `【交易所】${p.name} 買下了你的 ${def.name} x${r.sale!.qty}，入帳 ${r.sale!.sellerReceived.toLocaleString()}G`, '#ffd24a');
           this.markSelf(seller);
           this.sendMarket(seller);
