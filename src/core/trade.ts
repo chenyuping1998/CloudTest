@@ -17,6 +17,13 @@ interface Offer {
   gold: number;
   locked: boolean;
   confirmed: boolean;
+  /** 鎖定當下每件物品的樣子（強化值、卡片…）；執行前比對，防止鎖定後偷偷降級 */
+  snapshot?: Map<string, string>;
+}
+
+/** 交易關心的物品特徵：任何一項改變都代表對方看到的已經不是同一件東西 */
+function fingerprint(it: ItemInstance): string {
+  return JSON.stringify([it.defId, it.enchant, it.cards, it.bound]);
 }
 
 export interface TradeLog {
@@ -92,7 +99,14 @@ export class TradeSession {
   }
 
   lock(side: Side): void {
-    if (this.state === 'open') this.offers[side].locked = true;
+    if (this.state !== 'open') return;
+    const o = this.offers[side];
+    o.locked = true;
+    const inv = this.who(side).inventory;
+    o.snapshot = new Map([...o.items.keys()].flatMap((uid) => {
+      const it = inv.get(uid);
+      return it ? [[uid, fingerprint(it)] as [string, string]] : [];
+    }));
   }
 
   unlock(side: Side): void {
@@ -121,6 +135,7 @@ export class TradeSession {
     for (const [uid, qty] of o.items) {
       const it = c.inventory.get(uid);
       if (!it || it.qty < qty) return `${c.name} 的物品已變動`;
+      if (o.snapshot?.get(uid) !== fingerprint(it)) return `${c.name} 的物品在鎖定後被改動（強化值或卡片不同），交易取消`;
       if (!isTradeable(getDef(this.db, it.defId), it)) return '含有綁定物品';
     }
     return undefined;

@@ -15,7 +15,7 @@ import { Market, type Listing, type MarketStats, type Sale } from '../core/marke
 import { distributeExp, PARTY_MAX, PARTY_SHARE_DISTANCE, type ShareGroup } from '../core/party';
 import { mathRng, randRange, type Rng } from '../core/rng';
 import { TradeSession, type Side } from '../core/trade';
-import { Rarity, RARITY_INFO, STAT_KEYS, type ItemInstance } from '../core/types';
+import { Rarity, RARITY_INFO, STAT_KEYS, type EquipSlot, type ItemInstance } from '../core/types';
 import {
   CLASSES, HOMESTEAD_UPGRADES, ITEM_DB, MONSTER_DB, NODE_DB, NPC_SHOP, POOL_DB, RECIPE_DB, STATION_MAX_LEVEL,
   STATION_NAMES, initialHomestead, stationUpgradeCost,
@@ -183,6 +183,18 @@ const SAVE_INTERVAL_MS = 30_000;
 
 const valid = (s: unknown): s is string => typeof s === 'string' && s.length > 0 && s.length < 64;
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+
+/** 只接受物件「自己的」鍵：'toString'、'__proto__' 等原型鏈上的名稱一律不算 */
+function own<T extends object>(obj: T, key: unknown): key is keyof T {
+  return typeof key === 'string' && Object.hasOwn(obj, key);
+}
+
+const EQUIP_SLOTS: readonly string[] = ['weapon', 'armor', 'helm', 'shield', 'boots', 'accessory'] satisfies EquipSlot[];
+
+const TRADE_BLOCKED = new Set<ClientMsg['t']>([
+  'useItem', 'equip', 'unequip', 'enchant', 'compound', 'discard', 'craft', 'upgradeHome', 'upgradeStation',
+  'npcBuy', 'npcSell', 'marketList', 'marketBuy', 'marketCancel',
+]);
 
 export class GameServer {
   private players = new Map<Conn, PlayerEnt>();
@@ -512,6 +524,11 @@ export class GameServer {
 
   private dispatch(p: PlayerEnt, msg: ClientMsg): void {
     const ch = p.ch;
+    // 交易視窗開著時不能動背包 / 裝備 / 金幣（防止鎖定後調包；交易核心執行前也會再比對一次）
+    if (p.trade && TRADE_BLOCKED.has(msg.t)) {
+      this.log(p, '交易中無法進行此操作。', '#f99');
+      return;
+    }
     switch (msg.t) {
       case 'move':
         if (finite(msg.x) && finite(msg.z)) p.intent = { kind: 'move', x: msg.x, z: msg.z };
@@ -527,7 +544,7 @@ export class GameServer {
         return;
       case 'interact':
         if (msg.kind === 'npc' && NPC_POSITIONS.some((n) => n.id === msg.id)) p.intent = { kind: 'npc', id: msg.id };
-        if (msg.kind === 'station' && msg.id in STATION_NAMES) p.intent = { kind: 'station', id: msg.id };
+        if (msg.kind === 'station' && own(STATION_NAMES, msg.id)) p.intent = { kind: 'station', id: msg.id };
         return;
       case 'stop':
         p.intent = undefined;
@@ -552,6 +569,7 @@ export class GameServer {
         return;
       }
       case 'unequip':
+        if (!EQUIP_SLOTS.includes(msg.slot)) return;
         if (!ch.unequip(msg.slot)) this.log(p, '背包已滿。', '#f99');
         this.markSelf(p);
         return;
@@ -560,7 +578,7 @@ export class GameServer {
         this.markSelf(p);
         return;
       case 'changeJob':
-        if (typeof msg.job === 'string' && msg.job in CLASSES && ch.changeJob(msg.job)) {
+        if (own(CLASSES, msg.job) && ch.changeJob(msg.job)) {
           const tier = CLASSES[msg.job].tier;
           this.announce(p, `恭喜${tier === 2 ? '二轉' : '轉職'}為 ${CLASSES[msg.job].name}！`, '#ffe680');
           if (tier === 2) this.achieve(p, 'SECOND_JOB');
@@ -1265,7 +1283,7 @@ export class GameServer {
   }
 
   private upgradeStation(p: PlayerEnt, id: StationId): void {
-    if (!(id in STATION_NAMES)) return;
+    if (!own(STATION_NAMES, id)) return;
     const cost = stationUpgradeCost(id, p.home.buildingLevel(id));
     const r = p.home.upgradeBuilding(p.ch, id, cost, STATION_MAX_LEVEL);
     if (r.ok) this.announce(p, `${STATION_NAMES[id]} 升級到 Lv ${p.home.buildingLevel(id)}！`, '#9fffb0');
@@ -1661,6 +1679,24 @@ export class GameServer {
     p.dirtySelf = true;
   }
 
+  /**
+   * 最後一道防線：金幣與物品數量必須是非負整數。若有 bug 讓數值壞掉（NaN、負數），
+   * 立刻修正並寫入稽核日誌，避免「金幣不足」等比較失效而被無限利用。
+   */
+  private checkInvariants(p: PlayerEnt): void {
+    const d = p.ch.data;
+    if (!Number.isSafeInteger(d.gold) || d.gold < 0) {
+      this.audit('invariant_violation', p.name, { field: 'gold', value: String(d.gold) });
+      d.gold = Number.isFinite(d.gold) ? Math.max(0, Math.min(Math.floor(d.gold), Number.MAX_SAFE_INTEGER)) : 0;
+    }
+    const inv = p.ch.inventory;
+    const bad = inv.items.filter((it) => !Number.isSafeInteger(it.qty) || it.qty <= 0);
+    if (bad.length) {
+      this.audit('invariant_violation', p.name, { field: 'qty', items: bad.map((it) => ({ uid: it.uid, defId: it.defId, qty: String(it.qty) })) });
+      inv.items = inv.items.filter((it) => !bad.includes(it));
+    }
+  }
+
   private markHome(p: PlayerEnt): void {
     p.dirtyHome = true;
   }
@@ -1668,6 +1704,7 @@ export class GameServer {
   private flushSelf(p: PlayerEnt): void {
     this.checkProgressAchievements(p);
     p.dirtySelf = false;
+    this.checkInvariants(p);
     p.conn.send({ t: 'self', data: p.ch.serialize() });
   }
 
