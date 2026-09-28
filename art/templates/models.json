@@ -1,0 +1,159 @@
+{
+  "clips": [
+    "idle",
+    "walk",
+    "attack"
+  ],
+  "models": [
+    {
+      "key": "class_novice",
+      "name": "初心者",
+      "kind": "player"
+    },
+    {
+      "key": "class_swordsman",
+      "name": "劍士",
+      "kind": "player"
+    },
+    {
+      "key": "class_archer",
+      "name": "弓箭手",
+      "kind": "player"
+    },
+    {
+      "key": "class_mage",
+      "name": "魔法師",
+      "kind": "player"
+    },
+    {
+      "key": "class_merchant",
+      "name": "商人",
+      "kind": "player"
+    },
+    {
+      "key": "class_knight",
+      "name": "騎士",
+      "kind": "player"
+    },
+    {
+      "key": "class_hunter",
+      "name": "獵人",
+      "kind": "player"
+    },
+    {
+      "key": "class_wizard",
+      "name": "巫師",
+      "kind": "player"
+    },
+    {
+      "key": "class_blacksmith",
+      "name": "鐵匠",
+      "kind": "player"
+    },
+    {
+      "key": "monster_jelly_slime",
+      "name": "果凍史萊姆",
+      "kind": "monster",
+      "level": 1
+    },
+    {
+      "key": "monster_hop_shroom",
+      "name": "跳跳菇",
+      "kind": "monster",
+      "level": 5
+    },
+    {
+      "key": "monster_grey_wolf",
+      "name": "灰狼",
+      "kind": "monster",
+      "level": 10
+    },
+    {
+      "key": "monster_goblin",
+      "name": "哥布林戰士",
+      "kind": "monster",
+      "level": 15
+    },
+    {
+      "key": "monster_skeleton",
+      "name": "骷髏士兵",
+      "kind": "monster",
+      "level": 22
+    },
+    {
+      "key": "monster_rock_golem",
+      "name": "岩石魔像",
+      "kind": "monster",
+      "level": 30
+    },
+    {
+      "key": "monster_shadow_knight",
+      "name": "暗影騎士",
+      "kind": "monster",
+      "level": 37
+    },
+    {
+      "key": "monster_magma_golem",
+      "name": "熔岩巨像",
+      "kind": "monster",
+      "level": 44
+    },
+    {
+      "key": "monster_bone_lich",
+      "name": "骸骨巫妖王",
+      "kind": "mvp",
+      "level": 45
+    },
+    {
+      "key": "monster_snow_wolf",
+      "name": "雪原狼",
+      "kind": "monster",
+      "level": 50
+    },
+    {
+      "key": "monster_ice_slime",
+      "name": "冰晶史萊姆",
+      "kind": "monster",
+      "level": 52
+    },
+    {
+      "key": "monster_yeti",
+      "name": "雪人",
+      "kind": "monster",
+      "level": 56
+    },
+    {
+      "key": "monster_frost_skeleton",
+      "name": "霜寒骷髏法師",
+      "kind": "monster",
+      "level": 61
+    },
+    {
+      "key": "monster_frost_giant",
+      "name": "冰霜巨人",
+      "kind": "monster",
+      "level": 66
+    },
+    {
+      "key": "monster_frost_queen",
+      "name": "冰霜女王",
+      "kind": "mvp",
+      "level": 72
+    },
+    {
+      "key": "npc_shop",
+      "name": "道具商人",
+      "kind": "npc"
+    },
+    {
+      "key": "npc_market",
+      "name": "交易所管理員",
+      "kind": "npc"
+    },
+    {
+      "key": "npc_guide",
+      "name": "新手導覽員",
+      "kind": "npc"
+    }
+  ]
+}

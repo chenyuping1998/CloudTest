@@ -14,6 +14,7 @@ npm run dev        # 開發伺服器 http://localhost:5173
 npm test           # 單元測試（掉率驗證、交易防複製…）
 npm run sim:drops  # 掉寶平衡報表
 npm run sim:leveling # 練功節奏報表（每級耗時、最佳練功怪）
+npm run art:export # 匯出目前材質與模型清單給美術當範本（art/templates/）
 npm run server     # 連線伺服器 ws://localhost:8787（標題畫面選「連線遊玩」）
 npm run desktop    # 以 Electron 桌面版執行（有開 Steam 時會自動連上 Steam）
 npm run dist:win   # 打包 Windows 版到 release/win-unpacked（Linux：dist:linux、Mac：dist:mac）
@@ -39,7 +40,8 @@ npm run build:server # 產生正式版伺服器 dist-server/
 
 ## 已完成的系統
 
-- **方塊世界**：16×16 像素材質的地形、樹木、房屋、傳送門、雲，方塊人物與怪物（行走動畫、受擊閃紅、陰影）
+- **方塊世界**：16×16 像素材質的地形、樹木、房屋、傳送門、雲，方塊人物與怪物（行走動畫、受擊閃紅、陰影）；地形角落環境光遮蔽、水面起伏與像素波光、草隨風擺動
+- **美術替換管線**：`art/blocks/*.png` 換方塊材質、`art/models/*.glb`（Blockbench 匯出，含 idle/walk/attack 動畫）換角色與怪物，不用改程式 → [美術指南](art/README.md)
 - **戰鬥與成長**：RO 式 Base/Job 等級、六素質、一轉 4 職 + 二轉 4 職、33 個主動 / 被動技能（範圍、增益、治療）、命中/迴避/爆擊、死亡懲罰
 - **練功節奏**：以真實戰鬥公式模擬每級耗時，怪物經驗由公式校準；單次擊殺上限、休息經驗 → [設計文件](docs/leveling.md)
 - **多人連線**：權威伺服器（單機也跑同一份程式）、看得到其他玩家、聊天、玩家交易視窗、共用交易所、撿取優先權
@@ -62,3 +64,4 @@ npm run build:server # 產生正式版伺服器 dist-server/
 - [掉寶率與經濟設計](docs/drop-economy.md)／[掉寶平衡報表](docs/drop-report.md)
 - [上架 Steam 技術路線](docs/steam-roadmap.md)
 - [伺服器部署手冊](docs/deploy.md)
+- [美術資源替換指南](art/README.md)

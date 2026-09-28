@@ -13,6 +13,7 @@
     "sim:drops": "vite-node tools/simulate-drops.ts",
     "server": "vite-node server/main.ts",
     "sim:leveling": "vite-node tools/simulate-leveling.ts",
+    "art:export": "vite-node tools/export-art.ts",
     "desktop": "vite build && electron .",
     "desktop:smoke": "vite build && ROE_SMOKE_TEST=smoke.png DISABLE_STEAM=1 electron .",
     "dist": "vite build && electron-builder --dir",

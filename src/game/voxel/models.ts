@@ -7,6 +7,7 @@ import type { ClassId } from '../../data/classes';
 import type { MonsterDef } from '../../data/monsters';
 import type { TileName } from './atlas';
 import { blockMaterial, blockMesh, GeoBuilder, type Face } from './mesher';
+import { animateOverride, type RigAnim } from './modelOverrides';
 
 /** 1 像素的世界長度：人物 32px 高 ≈ 1.8 格，與 Minecraft 相同比例 */
 export const PX = 0.056;
@@ -126,9 +127,16 @@ export interface Rig {
   legs: THREE.Object3D[];
   bodyBob?: THREE.Object3D;
   tail?: THREE.Object3D;
+  /** 美術 .glb 模型（見 modelOverrides.ts） */
+  override?: THREE.Object3D;
+  anim?: RigAnim;
 }
 
-export function animateRig(rig: Rig, t: number, moving: boolean, attack: number): void {
+export function animateRig(rig: Rig, t: number, moving: boolean, attack: number, dt = 1 / 60): void {
+  if (rig.override) {
+    animateOverride(rig, dt, moving, attack);
+    return;
+  }
   const swing = moving ? Math.sin(t * 9) : 0;
   switch (rig.kind) {
     case 'humanoid':

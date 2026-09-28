@@ -1,6 +1,7 @@
 /**
  * 程序化生成的 16×16 像素材質圖集（Minecraft 風格）。
- * 正式版可以直接換成美術繪製的 atlas.png，只要 tile 名稱與位置一致即可。
+ * 美術替換：把 16×16 PNG 放到 art/blocks/<tile 名稱>.png，就會蓋掉對應的程序化材質
+ * （`npm run art:export` 會匯出目前全部材質當範本）。詳見 art/README.md。
  */
 import * as THREE from 'three';
 import { SeededRng } from '../../core/rng';
@@ -11,7 +12,7 @@ const COLS = 16;
 export type { TileName } from '../../shared/tiles';
 import type { TileName } from '../../shared/tiles';
 
-const TILES: TileName[] = [
+export const ATLAS_TILES: TileName[] = [
   'grass_top', 'grass_side', 'dirt', 'stone', 'cobble', 'sand', 'gravel', 'path',
   'log_side', 'log_top', 'leaves', 'maple_leaves', 'planks', 'dark_planks',
   'copper_ore', 'iron_ore', 'mithril_ore', 'coal_ore', 'water',
@@ -305,22 +306,52 @@ const P: Record<TileName, (p: Painter) => void> = {
   frozen_grass: (p) => p.noise('#8aa890', 12, ['#9ab8a0', '#e0e8ee', '#7a987f']),
 };
 
+/** 單一 tile 的程序化像素（RGBA），匯出工具與圖集共用 */
+export function paintTile(name: TileName): Uint8ClampedArray<ArrayBuffer> {
+  const p = new Painter(new SeededRng(1000 + ATLAS_TILES.indexOf(name) * 7919));
+  P[name](p);
+  return p.data;
+}
+
+/** art/blocks/*.png：美術繪製的材質（沒有檔案時是空物件） */
+const TILE_OVERRIDES = import.meta.glob('/art/blocks/*.png', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
+
+export function tileOverrideNames(): TileName[] {
+  return Object.keys(TILE_OVERRIDES)
+    .map((f) => f.slice(f.lastIndexOf('/') + 1, -4) as TileName)
+    .filter((n) => ATLAS_TILES.includes(n));
+}
+
 let atlasTex: THREE.Texture | undefined;
 const uvCache = new Map<TileName, [number, number, number, number]>();
 
 export function atlasTexture(): THREE.Texture {
   if (atlasTex) return atlasTex;
-  const rows = Math.ceil(TILES.length / COLS);
+  const rows = Math.ceil(ATLAS_TILES.length / COLS);
   const canvas = document.createElement('canvas');
   canvas.width = COLS * TILE;
   canvas.height = rows * TILE;
   const g = canvas.getContext('2d')!;
-  TILES.forEach((name, i) => {
-    const p = new Painter(new SeededRng(1000 + i * 7919));
-    P[name](p);
-    g.putImageData(new ImageData(p.data, TILE, TILE), (i % COLS) * TILE, Math.floor(i / COLS) * TILE);
+  ATLAS_TILES.forEach((name, i) => {
+    g.putImageData(new ImageData(paintTile(name), TILE, TILE), (i % COLS) * TILE, Math.floor(i / COLS) * TILE);
   });
   const t = new THREE.CanvasTexture(canvas);
+  // 美術材質非同步載入後蓋上去；載入失敗就保留程序化材質
+  for (const name of tileOverrideNames()) {
+    const img = new Image();
+    img.onload = () => {
+      const i = ATLAS_TILES.indexOf(name);
+      const x = (i % COLS) * TILE;
+      const y = Math.floor(i / COLS) * TILE;
+      if (img.width !== TILE || img.height !== TILE) console.warn(`[art] ${name}.png 應為 ${TILE}×${TILE}，實際 ${img.width}×${img.height}，已縮放`);
+      g.imageSmoothingEnabled = false;
+      g.clearRect(x, y, TILE, TILE);
+      g.drawImage(img, x, y, TILE, TILE);
+      t.needsUpdate = true;
+    };
+    img.onerror = () => console.warn(`[art] 無法載入 ${name}.png`);
+    img.src = TILE_OVERRIDES[`/art/blocks/${name}.png`];
+  }
   t.magFilter = THREE.NearestFilter;
   t.minFilter = THREE.NearestFilter;
   t.generateMipmaps = false;
@@ -333,8 +364,8 @@ export function atlasTexture(): THREE.Texture {
 export function tileUV(name: TileName): [number, number, number, number] {
   let uv = uvCache.get(name);
   if (!uv) {
-    const i = TILES.indexOf(name);
-    const rows = Math.ceil(TILES.length / COLS);
+    const i = ATLAS_TILES.indexOf(name);
+    const rows = Math.ceil(ATLAS_TILES.length / COLS);
     const w = COLS * TILE;
     const h = rows * TILE;
     const x = (i % COLS) * TILE;

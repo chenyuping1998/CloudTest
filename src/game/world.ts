@@ -19,6 +19,8 @@ import {
   animateRig, cloudMesh, spruceMesh, fenceMesh, gravestone, houseMesh, monsterRig, npcRig, oreMesh, playerRig, portalMeshes, stationMesh, treeMesh,
   type Rig,
 } from './voxel/models';
+import { applyModelOverride } from './voxel/modelOverrides';
+import { tickMaterials } from './voxel/mesher';
 import { Terrain } from './voxel/terrain';
 
 export type { ZoneId, NpcId };
@@ -196,7 +198,7 @@ export class World {
     return this.terrain?.heightAt(x, z) ?? 1;
   }
 
-  private newView(rig: Rig, x: number, z: number, yaw: number): View {
+  private newView(rig: Rig, x: number, z: number, yaw: number, artKey: string): View {
     // 同種角色共用材質快取；每個實體複製一份材質（貼圖仍共用），受擊閃紅才不會整群一起變紅
     rig.root.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -206,6 +208,8 @@ export class World {
     const y = this.groundY(x, z);
     rig.root.position.set(x, y, z);
     rig.yaw.rotation.y = yaw;
+    // 有美術 .glb 就換上（非同步，載入完才替換）
+    applyModelOverride(rig, artKey);
     return { rig, pos: new THREE.Vector3(x, y, z), target: new THREE.Vector3(x, y, z), yaw, moving: false, animT: Math.random() * 10, attackT: 0, swing: 0 };
   }
 
@@ -227,7 +231,7 @@ export class World {
         v = undefined;
       }
       if (!v) {
-        v = { ...this.newView(playerRig(s.cls), s.x, s.z, s.yaw), id: s.id, name: s.name, cls: s.cls, hp: s.hp, maxHp: s.maxHp };
+        v = { ...this.newView(playerRig(s.cls), s.x, s.z, s.yaw, `class_${s.cls}`), id: s.id, name: s.name, cls: s.cls, hp: s.hp, maxHp: s.maxHp };
         v.swing = s.swing;
         this.tagPick(v.rig.root, { type: 'player', id: s.id });
         this.zoneRoot.add(v.rig.root);
@@ -250,7 +254,7 @@ export class World {
       let v = this.monsters.get(s.id);
       if (!v) {
         const def = MONSTER_DB.get(s.def)!;
-        v = { ...this.newView(monsterRig(def), s.x, s.z, s.yaw), id: s.id, def, hp: s.hp, dead: s.dead, lastHit: -99 };
+        v = { ...this.newView(monsterRig(def), s.x, s.z, s.yaw, `monster_${def.id}`), id: s.id, def, hp: s.hp, dead: s.dead, lastHit: -99 };
         v.swing = s.swing;
         this.tagPick(v.rig.root, { type: 'monster', id: s.id });
         this.zoneRoot.add(v.rig.root);
@@ -387,7 +391,7 @@ export class World {
       this.place(mesh, g.x, g.z);
     }
     for (const n of layout.npcs) {
-      const v: NpcView = { ...this.newView(npcRig(n.id), n.x, n.z, Math.atan2(-n.x, -n.z + 6)), id: n.id, name: n.name };
+      const v: NpcView = { ...this.newView(npcRig(n.id), n.x, n.z, Math.atan2(-n.x, -n.z + 6), `npc_${n.id}`), id: n.id, name: n.name };
       this.tagPick(v.rig.root, { type: 'npc', id: n.id });
       this.zoneRoot.add(v.rig.root);
       this.npcs.push(v);
@@ -605,6 +609,7 @@ export class World {
 
   update(dt: number): void {
     this.time += dt;
+    tickMaterials(this.time);
     const lerp = Math.min(1, dt * 12);
     const animate = (v: View) => {
       v.pos.lerp(v.target, lerp);
@@ -617,7 +622,7 @@ export class World {
         v.attackT += dt * 3.5;
         if (v.attackT >= 1) v.attackT = 0;
       }
-      animateRig(v.rig, v.moving ? v.animT : this.time, v.moving, v.attackT);
+      animateRig(v.rig, v.moving ? v.animT : this.time, v.moving, v.attackT, dt);
     };
     for (const v of this.players.values()) animate(v);
     for (const v of this.monsters.values()) if (!v.dead) animate(v);

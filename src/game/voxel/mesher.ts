@@ -28,7 +28,8 @@ export class GeoBuilder {
   }
 
   /** 加一個四邊形；corners 依逆時針順序 (從外面看)，uv 從左下開始 */
-  quad(c: number[][], n: number[], tile: TileName, shade: number, tint: [number, number, number] = [1, 1, 1], uvRect?: [number, number, number, number]): void {
+  /** ao：四個角各自的明暗（環境光遮蔽），順序同 corners */
+  quad(c: number[][], n: number[], tile: TileName, shade: number, tint: [number, number, number] = [1, 1, 1], uvRect?: [number, number, number, number], ao?: number[]): void {
     const [u0, v0, u1, v1] = tileUV(tile);
     const [a, b, cc, d] = uvRect ?? [0, 0, 1, 1];
     const us = [u0 + (u1 - u0) * a, u0 + (u1 - u0) * cc];
@@ -39,13 +40,16 @@ export class GeoBuilder {
       this.pos.push(c[i][0], c[i][1], c[i][2]);
       this.nor.push(n[0], n[1], n[2]);
       this.uv.push(uvs[i][0], uvs[i][1]);
-      this.col.push(shade * tint[0], shade * tint[1], shade * tint[2]);
+      const o = ao ? ao[i] : 1;
+      this.col.push(shade * o * tint[0], shade * o * tint[1], shade * o * tint[2]);
     }
-    this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    // 四角遮蔽不對稱時換對角線切三角形，避免明暗出現斜向接縫（Minecraft 的作法）
+    if (ao && ao[0] + ao[2] < ao[1] + ao[3]) this.idx.push(base + 1, base + 2, base + 3, base + 1, base + 3, base);
+    else this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
   }
 
   /** 以 (x0,y0,z0)-(x1,y1,z1) 的方塊加入指定面 */
-  box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, tiles: FaceTiles, opts: { faces?: Face[]; tint?: [number, number, number]; uvScale?: boolean } = {}): void {
+  box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, tiles: FaceTiles, opts: { faces?: Face[]; tint?: [number, number, number]; uvScale?: boolean; ao?: number[] } = {}): void {
     const faces = opts.faces ?? FACES;
     // uvScale：小於 1 格的方塊只取材質的一部分，讓像素大小一致
     const sx = opts.uvScale ? Math.min(1, x1 - x0) : 1;
@@ -55,13 +59,14 @@ export class GeoBuilder {
       const t = tileFor(tiles, f);
       const s = SHADE[f];
       const tint = opts.tint;
+      const ao = opts.ao;
       switch (f) {
-        case 'py': this.quad([[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]], [0, 1, 0], t, s, tint, [0, 0, sx, sz]); break;
-        case 'ny': this.quad([[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], [0, -1, 0], t, s, tint, [0, 0, sx, sz]); break;
-        case 'pz': this.quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], [0, 0, 1], t, s, tint, [0, 1 - sy, sx, 1]); break;
-        case 'nz': this.quad([[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]], [0, 0, -1], t, s, tint, [0, 1 - sy, sx, 1]); break;
-        case 'px': this.quad([[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]], [1, 0, 0], t, s, tint, [0, 1 - sy, sz, 1]); break;
-        case 'nx': this.quad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], [-1, 0, 0], t, s, tint, [0, 1 - sy, sz, 1]); break;
+        case 'py': this.quad([[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]], [0, 1, 0], t, s, tint, [0, 0, sx, sz], ao); break;
+        case 'ny': this.quad([[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], [0, -1, 0], t, s, tint, [0, 0, sx, sz], ao); break;
+        case 'pz': this.quad([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], [0, 0, 1], t, s, tint, [0, 1 - sy, sx, 1], ao); break;
+        case 'nz': this.quad([[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]], [0, 0, -1], t, s, tint, [0, 1 - sy, sx, 1], ao); break;
+        case 'px': this.quad([[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]], [1, 0, 0], t, s, tint, [0, 1 - sy, sz, 1], ao); break;
+        case 'nx': this.quad([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], [-1, 0, 0], t, s, tint, [0, 1 - sy, sz, 1], ao); break;
       }
     }
   }
@@ -91,7 +96,15 @@ export class GeoBuilder {
 
 let solidMat: THREE.MeshLambertMaterial | undefined;
 let cutoutMat: THREE.MeshLambertMaterial | undefined;
+let plantMat: THREE.MeshLambertMaterial | undefined;
 let waterMat: THREE.MeshLambertMaterial | undefined;
+
+/** 動態材質共用的時間 uniform（水面起伏、草隨風擺動） */
+const timeUniform = { value: 0 };
+
+export function tickMaterials(time: number): void {
+  timeUniform.value = time;
+}
 
 export function blockMaterial(): THREE.MeshLambertMaterial {
   return (solidMat ??= new THREE.MeshLambertMaterial({ map: atlasTexture(), vertexColors: true }));
@@ -102,8 +115,54 @@ export function cutoutMaterial(): THREE.MeshLambertMaterial {
   return (cutoutMat ??= new THREE.MeshLambertMaterial({ map: atlasTexture(), vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide }));
 }
 
+/** 地形上的草與花：頂端隨風擺動（植物底部在整數高度，fract(y) 越大擺越多） */
+export function plantMaterial(): THREE.MeshLambertMaterial {
+  if (plantMat) return plantMat;
+  plantMat = new THREE.MeshLambertMaterial({ map: atlasTexture(), vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide });
+  plantMat.onBeforeCompile = (sh) => {
+    sh.uniforms.uTime = timeUniform;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        float sway = fract(position.y);
+        float ph = uTime * 1.7 + position.x * 0.8 + position.z * 0.6;
+        transformed.x += sin(ph) * 0.06 * sway;
+        transformed.z += cos(ph * 0.8) * 0.05 * sway;`,
+      );
+  };
+  plantMat.customProgramCacheKey = () => 'plant-sway';
+  return plantMat;
+}
+
+/** 水面：頂點起伏 + 波光（依世界座標的亮帶緩慢移動） */
 export function waterMaterial(): THREE.MeshLambertMaterial {
-  return (waterMat ??= new THREE.MeshLambertMaterial({ map: atlasTexture(), vertexColors: true, transparent: true, opacity: 0.72, depthWrite: false }));
+  if (waterMat) return waterMat;
+  waterMat = new THREE.MeshLambertMaterial({ map: atlasTexture(), vertexColors: true, transparent: true, opacity: 0.72, depthWrite: false });
+  waterMat.onBeforeCompile = (sh) => {
+    sh.uniforms.uTime = timeUniform;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nvarying vec2 vWaterPos;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        vWaterPos = position.xz;
+        transformed.y += sin(uTime * 1.6 + position.x * 0.9 + position.z * 0.7) * 0.04 - 0.04;`,
+      );
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nvarying vec2 vWaterPos;')
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        // 對齊 16×16 像素格，波光才會是方塊像素而不是模糊光斑
+        vec2 wp = floor(vWaterPos * 16.0) / 16.0;
+        float glint = sin(wp.x * 2.1 + uTime * 1.3) * sin(wp.y * 1.7 - uTime * 1.1);
+        diffuseColor.rgb += vec3(0.12, 0.16, 0.20) * step(0.72, glint);`,
+      );
+  };
+  waterMat.customProgramCacheKey = () => 'water-anim';
+  return waterMat;
 }
 
 /** 一次建好一個方塊模型（家具、礦石、樹等），回傳可投射陰影的 Mesh */

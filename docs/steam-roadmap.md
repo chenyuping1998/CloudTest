@@ -54,7 +54,7 @@ tools/      掉寶平衡報表
 
 ## 下一步建議
 
-1. 美術：用 Blockbench 製作正式的方塊模型與 16×16 材質，替換程序化生成的暫代美術（介面已預留：`voxel/atlas.ts`、`voxel/models.ts`）
+1. 美術：替換管線已完成（見 [美術指南](../art/README.md)）。找美術用 Blockbench 製作 45 張方塊材質、9 個職業、15 種怪物、3 個 NPC 模型，放進 `art/` 即可
 2. 租一台主機照 [部署手冊](deploy.md) 架起測試伺服器
 3. 內容：第三張地圖、地下城
 4. 找 10~20 位玩家做封閉測試，用 `npm run sim:drops`、`npm run sim:leveling` 的報表對照真實數據
