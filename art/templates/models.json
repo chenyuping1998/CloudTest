@@ -141,6 +141,48 @@
       "level": 72
     },
     {
+      "key": "monster_ember_imp",
+      "name": "餘燼小鬼",
+      "kind": "monster",
+      "level": 70
+    },
+    {
+      "key": "monster_lava_slime",
+      "name": "熔岩史萊姆",
+      "kind": "monster",
+      "level": 72
+    },
+    {
+      "key": "monster_obsidian_golem",
+      "name": "黑曜石魔像",
+      "kind": "monster",
+      "level": 76
+    },
+    {
+      "key": "monster_hellhound",
+      "name": "煉獄犬",
+      "kind": "monster",
+      "level": 79
+    },
+    {
+      "key": "monster_ember_knight",
+      "name": "餘燼騎士",
+      "kind": "monster",
+      "level": 83
+    },
+    {
+      "key": "monster_flame_wraith",
+      "name": "炎靈",
+      "kind": "monster",
+      "level": 87
+    },
+    {
+      "key": "monster_ember_lord",
+      "name": "餘燼魔王",
+      "kind": "mvp",
+      "level": 92
+    },
+    {
       "key": "npc_shop",
       "name": "道具商人",
       "kind": "npc"

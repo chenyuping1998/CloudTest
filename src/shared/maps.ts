@@ -7,9 +7,9 @@ import { randRange, SeededRng } from '../core/rng';
 import { Grid, valueNoise, type Column } from './grid';
 import type { TileName } from './tiles';
 
-export type ZoneId = 'field' | 'homestead' | 'frost';
+export type ZoneId = 'field' | 'homestead' | 'frost' | 'ember';
 /** 所有玩家共用的野外地圖（家園是每人一份） */
-export type WorldZoneId = 'field' | 'frost';
+export type WorldZoneId = 'field' | 'frost' | 'ember';
 export type NpcId = 'shop' | 'market' | 'guide';
 
 export interface TreeDef { x: number; z: number; leaves: TileName; trunk: number; spruce?: boolean }
@@ -31,12 +31,12 @@ export interface MapLayout {
   sky: { top: string; bottom: string; fog: number };
 }
 
-export const ZONE_SIZE: Record<ZoneId, number> = { field: 72, homestead: 40, frost: 72 };
+export const ZONE_SIZE: Record<ZoneId, number> = { field: 72, homestead: 40, frost: 72, ember: 72 };
 
-export const ZONE_NAMES: Record<ZoneId, string> = { field: '晨曦平原', homestead: '家園', frost: '霜語山脈' };
+export const ZONE_NAMES: Record<ZoneId, string> = { field: '晨曦平原', homestead: '家園', frost: '霜語山脈', ember: '餘燼深淵' };
 
 /** 地圖的建議等級（顯示在傳送門上） */
-export const ZONE_LEVELS: Record<ZoneId, string> = { field: 'Lv 1~50', homestead: '', frost: 'Lv 50~70' };
+export const ZONE_LEVELS: Record<ZoneId, string> = { field: 'Lv 1~50', homestead: '', frost: 'Lv 50~70', ember: 'Lv 70~90' };
 
 /** 野外怪物分布：怪物 id、數量、中心點、半徑 */
 export const FIELD_SPAWNS: [string, number, [number, number], number][] = [
@@ -60,10 +60,20 @@ export const FROST_SPAWNS: [string, number, [number, number], number][] = [
   ['frost_queen', 1, [26, -24], 3],
 ];
 
-export const ZONE_SPAWNS: Record<WorldZoneId, typeof FIELD_SPAWNS> = { field: FIELD_SPAWNS, frost: FROST_SPAWNS };
+export const EMBER_SPAWNS: [string, number, [number, number], number][] = [
+  ['ember_imp', 8, [-16, -12], 7],
+  ['lava_slime', 7, [-16, 14], 7],
+  ['obsidian_golem', 5, [2, -22], 6],
+  ['hellhound', 6, [18, 6], 6],
+  ['ember_knight', 6, [16, 24], 6],
+  ['flame_wraith', 5, [-2, 22], 5],
+  ['ember_lord', 1, [26, -22], 3],
+];
+
+export const ZONE_SPAWNS: Record<WorldZoneId, typeof FIELD_SPAWNS> = { field: FIELD_SPAWNS, frost: FROST_SPAWNS, ember: EMBER_SPAWNS };
 
 /** MVP 出現時的公告位置描述 */
-export const MVP_LOCATION: Record<string, string> = { bone_lich: '晨曦平原的東南方', frost_queen: '霜語山脈的東北方冰原' };
+export const MVP_LOCATION: Record<string, string> = { bone_lich: '晨曦平原的東南方', frost_queen: '霜語山脈的東北方冰原', ember_lord: '餘燼深淵的東北方祭壇' };
 
 const HOMESTEAD_NODE_SLOTS: [number, number][] = [
   [-12, -9], [-15, -3], [-11, 3], [11, -11], [15, -6], [-14, 10], [-8, 13], [12, 7], [16, 12], [7, 14], [-5, -14], [3, -15],
@@ -230,8 +240,10 @@ function frostColumn(x: number, z: number, noise: (x: number, z: number) => numb
   if (inRegion(-29, 0, 5)) return { height: 1, top: inRegion(-29, 0, 3) ? 'cobble' : 'frozen_grass', under: 'dirt' };
   // 結冰的湖（可以走）
   if (inRegion(-2, 20, 7)) return { height: 1, top: inRegion(-2, 20, 5.5) ? 'ice' : 'snow_top', under: 'packed_ice' };
-  // 主要道路
-  if (Math.abs(z) < 1.2 && x < 20) return { height: 1, top: 'gravel', under: 'dirt' };
+  // 通往餘燼深淵的傳送門
+  if (inRegion(31.5, 0.5, 3)) return { height: 1, top: 'cobble', under: 'dirt' };
+  // 主要道路（西邊營地 → 東邊傳送門）
+  if (Math.abs(z) < 1.2) return { height: 1, top: 'gravel', under: 'dirt' };
   let height = 1 + (n > 0.55 ? 1 : 0) + (n > 0.7 ? 1 : 0) + (n > 0.82 ? 1 : 0);
   let top: TileName = 'snow_top';
   let under: TileName = 'dirt';
@@ -267,7 +279,7 @@ export function frostLayout(): MapLayout {
     const z = randRange(tr, -half + 3, half - 3);
     const trunk = 5 + (tr.next() < 0.5 ? 1 : 0);
     const col = grid.columnAt(x, z);
-    if (!col || col.top !== 'snow_top' || Math.hypot(x + 29, z) < 7 || Math.abs(z) < 2) continue;
+    if (!col || col.top !== 'snow_top' || Math.hypot(x + 29, z) < 7 || Math.hypot(x - 31.5, z) < 5 || Math.abs(z) < 2) continue;
     if (FROST_SPAWNS.some(([, , [cx, cz], r]) => Math.hypot(x - cx, z - cz) < r * 0.7)) continue;
     const t: TreeDef = { x: Math.floor(x) + 0.5, z: Math.floor(z) + 0.5, leaves: 'spruce_leaves', trunk, spruce: true };
     trees.push(t);
@@ -275,12 +287,65 @@ export function frostLayout(): MapLayout {
   }
   frostCache = {
     zone: 'frost', size, grid, spawn: { x: -28.5, z: 0.5 }, trees, graves: [], npcs: [],
-    portals: [{ to: 'field', x: -32, z: 0.5 }], stations: [], nodes: [], fences: [],
+    portals: [{ to: 'field', x: -32, z: 0.5 }, { to: 'ember', x: 32, z: 0.5 }], stations: [], nodes: [], fences: [],
     sky: { top: '#8fb8e8', bottom: '#eef4fa', fog: 0xe4eef8 },
   };
   return frostCache;
 }
 
+// ============================================================ 餘燼深淵
+
+/** 岩漿河：由北往南蜿蜒，在主要道路處有黑曜石橋 */
+function lavaRiverX(z: number): number {
+  return 6 + Math.sin(z * 0.13) * 5;
+}
+
+function emberColumn(x: number, z: number, noise: (x: number, z: number) => number, rng: SeededRng): Column {
+  const half = ZONE_SIZE.ember / 2;
+  if (Math.max(Math.abs(x), Math.abs(z)) > half - 1) return { height: 6, top: 'basalt_top', under: 'basalt_side', blocked: true };
+  const inRegion = (cx: number, cz: number, r: number) => Math.hypot(x - cx, z - cz) < r;
+  const lava = (): Column => ({ height: 0, top: 'lava', under: 'basalt_side', blocked: true });
+  // 入口營地
+  if (inRegion(-29, 0, 5)) return { height: 1, top: inRegion(-29, 0, 3) ? 'obsidian' : 'ash', under: 'basalt_side' };
+  // 魔王祭壇：黑曜石地板，外圍一圈岩漿，只留西南方入口
+  const altar = Math.hypot(x - 26, z + 22);
+  if (altar < 5.5) return { height: 1, top: 'obsidian', under: 'obsidian' };
+  if (altar < 7 && !(x < 24 && z > -20)) return lava();
+  // 岩漿河與橋
+  const river = Math.abs(x - lavaRiverX(z));
+  if (river < 1.6) {
+    if (Math.abs(z) < 1.3 || Math.abs(z - 18) < 1.3 || Math.abs(z + 16) < 1.3) return { height: 1, top: 'obsidian', under: 'obsidian' };
+    return lava();
+  }
+  // 主要道路
+  if (Math.abs(z) < 1.2) return { height: 1, top: 'ash', under: 'basalt_side' };
+  // 零星的岩漿池
+  const n = noise(x * 0.09, z * 0.09);
+  const nearSpawn = EMBER_SPAWNS.some(([, , [cx, cz], r]) => inRegion(cx, cz, r + 1));
+  if (!nearSpawn && n < 0.16) return lava();
+  // 玄武岩柱（擋路的高柱）
+  if (!nearSpawn && n > 0.8) return { height: 3 + (n > 0.88 ? 1 : 0), top: 'basalt_top', under: 'basalt_side', blocked: true };
+  const height = 1 + (n > 0.62 && !nearSpawn ? 1 : 0);
+  const r = rng.next();
+  return { height, top: r < 0.35 ? 'ash' : 'basalt_top', under: 'basalt_side' };
+}
+
+let emberCache: MapLayout | undefined;
+
+export function emberLayout(): MapLayout {
+  if (emberCache) return emberCache;
+  const size = ZONE_SIZE.ember;
+  const noise = valueNoise(66);
+  const rng = new SeededRng(91);
+  const grid = new Grid(size, (x, z) => emberColumn(x, z, noise, rng));
+  emberCache = {
+    zone: 'ember', size, grid, spawn: { x: -28.5, z: 0.5 }, trees: [], graves: [], npcs: [],
+    portals: [{ to: 'frost', x: -32, z: 0.5 }], stations: [], nodes: [], fences: [],
+    sky: { top: '#2a0e0a', bottom: '#7a2a14', fog: 0x4a1a10 },
+  };
+  return emberCache;
+}
+
 export function worldLayout(zone: WorldZoneId): MapLayout {
-  return zone === 'field' ? fieldLayout() : frostLayout();
+  return zone === 'field' ? fieldLayout() : zone === 'frost' ? frostLayout() : emberLayout();
 }

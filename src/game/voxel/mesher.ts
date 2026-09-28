@@ -98,6 +98,7 @@ let solidMat: THREE.MeshLambertMaterial | undefined;
 let cutoutMat: THREE.MeshLambertMaterial | undefined;
 let plantMat: THREE.MeshLambertMaterial | undefined;
 let waterMat: THREE.MeshLambertMaterial | undefined;
+let lavaMat: THREE.MeshBasicMaterial | undefined;
 
 /** 動態材質共用的時間 uniform（水面起伏、草隨風擺動） */
 const timeUniform = { value: 0 };
@@ -134,6 +135,34 @@ export function plantMaterial(): THREE.MeshLambertMaterial {
   };
   plantMat.customProgramCacheKey = () => 'plant-sway';
   return plantMat;
+}
+
+/** 岩漿：自己發光（不受光照影響），緩慢起伏並有明暗脈動 */
+export function lavaMaterial(): THREE.MeshBasicMaterial {
+  if (lavaMat) return lavaMat;
+  lavaMat = new THREE.MeshBasicMaterial({ map: atlasTexture(), vertexColors: true });
+  lavaMat.onBeforeCompile = (sh) => {
+    sh.uniforms.uTime = timeUniform;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nvarying vec2 vLavaPos;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        vLavaPos = position.xz;
+        transformed.y += sin(uTime * 0.8 + position.x * 0.5 + position.z * 0.4) * 0.05;`,
+      );
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nvarying vec2 vLavaPos;')
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        vec2 lp = floor(vLavaPos * 16.0) / 16.0;
+        float pulse = 0.5 + 0.5 * sin(uTime * 1.4 + lp.x * 0.7 - lp.y * 0.5);
+        diffuseColor.rgb *= 0.85 + 0.35 * pulse;`,
+      );
+  };
+  lavaMat.customProgramCacheKey = () => 'lava-anim';
+  return lavaMat;
 }
 
 /** 水面：頂點起伏 + 波光（依世界座標的亮帶緩慢移動） */

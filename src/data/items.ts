@@ -44,6 +44,13 @@ export const ITEMS: ItemDef[] = [
   mat('frost_essence', '霜之精髓', R.Rare, 600, 1, '凝結的寒氣，鍛造冰霜武器的關鍵材料。'),
   mat('giant_heart', '巨人之心', R.Uncommon, 400, 6, '冰霜巨人體內緩慢跳動的冰核。'),
   mat('queen_shard', '女王的冰晶碎片', R.Rare, 2500, 1, '冰霜女王消散後留下的碎片。'),
+  // ---- 餘燼深淵 ----
+  mat('ember_ash', '餘燼灰', R.Common, 90, 1, '仍帶著微溫的灰燼，深淵裡到處都是。'),
+  mat('imp_horn', '小鬼之角', R.Common, 110, 1, '餘燼小鬼頭上的小角，鍊金師愛用的材料。'),
+  mat('obsidian_shard', '黑曜石碎片', R.Uncommon, 300, 3, '從黑曜石魔像身上敲下的碎片，鋒利如刀。'),
+  mat('hellfire_fang', '煉獄獠牙', R.Uncommon, 350, 1, '煉獄犬的獠牙，咬合處還在冒煙。'),
+  mat('ember_essence', '餘燼精髓', R.Rare, 1200, 1, '深淵之火凝成的結晶，鍛造餘燼裝備的關鍵材料。'),
+  mat('lord_cinder', '魔王餘火', R.Rare, 5000, 1, '餘燼魔王倒下後仍在燃燒的火種。'),
   // ---- 家園原料 ----
   mat('oak_log', '橡木原木', R.Common, 4, 3, '家園砍伐的橡木。'),
   mat('maple_log', '楓木原木', R.Common, 12, 3, '質地細密的楓木。'),
@@ -102,6 +109,15 @@ export const ITEMS: ItemDef[] = [
   equip('armor', 'boots', { id: 'snow_boots', name: '雪地靴', rarity: R.Rare, bind: 'tradeable', weight: 30, sellPrice: 4000, def: 10, levelReq: 50, bonus: { agi: 4 }, desc: '在雪地上也能健步如飛。' }),
   equip('accessory', 'accessory', { id: 'giant_ring', name: '巨人指環', rarity: R.Epic, bind: 'tradeable', weight: 10, sellPrice: 12000, bonus: { vit: 6, str: 3 }, levelReq: 60, desc: '冰霜巨人手指上的指環，對人類來說像手鐲。' }),
   equip('accessory', 'accessory', { id: 'queen_tear', name: '女王之淚', rarity: R.Legendary, bind: 'bindOnEquip', weight: 5, sellPrice: 60000, bonus: { int: 8, luk: 5 }, dropBonusPct: 5, levelReq: 65, desc: '冰霜女王唯一的眼淚。裝備後綁定。' }),
+  // ---- 餘燼深淵（Lv 70~90） ----
+  equip('weapon', 'weapon', { id: 'ember_blade', name: '餘燼大劍', rarity: R.Rare, bind: 'tradeable', weight: 130, sellPrice: 20000, atk: 205, levelReq: 68, cardSlots: 1, bonus: { str: 4 }, desc: '劍身裡封著一道永不熄滅的火焰，可在家園鍛造。' }),
+  equip('weapon', 'weapon', { id: 'inferno_staff', name: '煉獄法杖', rarity: R.Rare, bind: 'tradeable', weight: 55, sellPrice: 19000, atk: 55, matk: 245, levelReq: 70, cardSlots: 1, bonus: { int: 5 }, desc: '杖頭燃燒著來自深淵的火。' }),
+  equip('weapon', 'weapon', { id: 'abyss_edge', name: '深淵之刃', rarity: R.Mythic, bind: 'bindOnEquip', weight: 110, sellPrice: 600000, atk: 330, levelReq: 85, cardSlots: 2, bonus: { str: 10, dex: 6 }, desc: '餘燼魔王的佩劍，劍刃像深淵一樣吞噬光線。裝備後綁定。' }),
+  equip('armor', 'armor', { id: 'obsidian_plate', name: '黑曜石鎧甲', rarity: R.Epic, bind: 'tradeable', weight: 180, sellPrice: 32000, def: 80, levelReq: 70, cardSlots: 1, bonus: { vit: 4 }, desc: '以黑曜石碎片層層鑲成，只有頂尖工匠做得出來。' }),
+  equip('armor', 'helm', { id: 'ember_helm', name: '餘燼頭盔', rarity: R.Rare, bind: 'tradeable', weight: 40, sellPrice: 11000, def: 19, levelReq: 72, cardSlots: 1, bonus: { str: 2, vit: 2 }, desc: '頭盔縫隙中透出微微火光。' }),
+  equip('armor', 'boots', { id: 'lava_greaves', name: '熔岩戰靴', rarity: R.Rare, bind: 'tradeable', weight: 40, sellPrice: 9000, def: 14, levelReq: 70, cardSlots: 1, bonus: { agi: 5 }, desc: '踩在熔岩上也不會燙傷。' }),
+  equip('accessory', 'accessory', { id: 'hellhound_collar', name: '煉獄犬項圈', rarity: R.Epic, bind: 'tradeable', weight: 10, sellPrice: 26000, bonus: { str: 4, agi: 4 }, levelReq: 78, desc: '煉獄犬首領的項圈，戴上後渾身燥熱。' }),
+  equip('accessory', 'accessory', { id: 'lord_heart', name: '魔王之心', rarity: R.Legendary, bind: 'bindOnEquip', weight: 5, sellPrice: 120000, bonus: { str: 8, vit: 8 }, dropBonusPct: 5, levelReq: 85, desc: '仍在跳動的漆黑心臟。裝備後綁定。' }),
   equip('armor', 'helm', { id: 'leather_cap', name: '皮帽', rarity: R.Common, bind: 'tradeable', weight: 10, sellPrice: 20, def: 3, desc: '簡單的皮帽。' }),
   equip('armor', 'helm', { id: 'iron_helm', name: '鐵盔', rarity: R.Uncommon, bind: 'tradeable', weight: 40, sellPrice: 300, def: 8, levelReq: 12, cardSlots: 1, desc: '結實的鐵盔。' }),
   equip('armor', 'shield', { id: 'buckler', name: '圓盾', rarity: R.Uncommon, bind: 'tradeable', weight: 60, sellPrice: 200, def: 8, levelReq: 8, cardSlots: 1, desc: '小型圓盾。' }),
@@ -125,6 +141,13 @@ export const ITEMS: ItemDef[] = [
   card('card_frost_skeleton', '霜寒骷髏卡片', R.Epic, 'weapon', { atk: 22 }, '武器卡：ATK +22。'),
   card('card_frost_giant', '冰霜巨人卡片', R.Epic, 'shield', { def: 8, bonus: { vit: 2 } }, '盾牌卡：DEF +8、VIT +2。'),
   card('card_frost_queen', '冰霜女王卡片', R.Mythic, 'accessory', { bonus: { int: 6, dex: 6 }, dropBonusPct: 5 }, 'MVP 卡：INT +6、DEX +6、掉寶率 +5%。'),
+  card('card_ember_imp', '餘燼小鬼卡片', R.Epic, 'weapon', { atk: 15, bonus: { dex: 2 } }, '武器卡：ATK +15、DEX +2。'),
+  card('card_lava_slime', '熔岩史萊姆卡片', R.Epic, 'armor', { def: 6, bonus: { vit: 3 } }, '鎧甲卡：DEF +6、VIT +3。'),
+  card('card_obsidian_golem', '黑曜石魔像卡片', R.Epic, 'shield', { def: 12 }, '盾牌卡：DEF +12。'),
+  card('card_hellhound', '煉獄犬卡片', R.Epic, 'boots', { bonus: { agi: 5 } }, '鞋子卡：AGI +5。'),
+  card('card_ember_knight', '餘燼騎士卡片', R.Epic, 'weapon', { atk: 28 }, '武器卡：ATK +28。'),
+  card('card_flame_wraith', '炎靈卡片', R.Epic, 'helm', { bonus: { int: 4, dex: 2 } }, '頭盔卡：INT +4、DEX +2。'),
+  card('card_ember_lord', '餘燼魔王卡片', R.Mythic, 'accessory', { bonus: { str: 8, agi: 4 }, dropBonusPct: 5 }, 'MVP 卡：STR +8、AGI +4、掉寶率 +5%。'),
   card('card_lich', '骸骨巫妖王卡片', R.Mythic, 'accessory', { bonus: { int: 5, dex: 5 }, dropBonusPct: 5 }, 'MVP 卡：INT +5、DEX +5、掉寶率 +5%。'),
 
   // ---- 工具 ----

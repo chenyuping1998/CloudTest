@@ -45,6 +45,11 @@
     "packed_ice",
     "spruce_log",
     "spruce_leaves",
-    "frozen_grass"
+    "frozen_grass",
+    "basalt_top",
+    "basalt_side",
+    "ash",
+    "lava",
+    "obsidian"
   ]
 }

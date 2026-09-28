@@ -73,6 +73,21 @@ export const TREASURE_POOLS: TreasurePool[] = [
       { itemId: 'queen_tear', weight: 0.2 },
     ],
   },
+  {
+    id: 'ember_t4',
+    triggerPpm: 25_000,
+    entries: [
+      { itemId: 'scroll_weapon_blessed', weight: 12 },
+      { itemId: 'scroll_armor_blessed', weight: 12 },
+      { itemId: 'lava_greaves', weight: 15 },
+      { itemId: 'ember_helm', weight: 12 },
+      { itemId: 'ember_blade', weight: 8 },
+      { itemId: 'inferno_staff', weight: 8 },
+      { itemId: 'scroll_protect', weight: 2 },
+      { itemId: 'hellhound_collar', weight: 1.2 },
+      { itemId: 'lord_heart', weight: 0.15 },
+    ],
+  },
 ];
 
 export const MONSTERS: MonsterDef[] = [
@@ -335,6 +350,121 @@ export const MONSTERS: MonsterDef[] = [
         { itemId: 'scroll_protect', ratePpm: PPM, min: 2, max: 2 },
         { itemId: 'frost_essence', ratePpm: 50_000, min: 3, max: 6 },
         { itemId: 'permafrost_blade', ratePpm: 50, pity: { startAfter: 40, stepPpm: 25 } },
+      ],
+    },
+  },
+  // ======================= 餘燼深淵（Lv 70~90） =======================
+  {
+    id: 'ember_imp', name: '餘燼小鬼', level: 70, hp: 9500, atk: 400, def: 70, hit: 210, flee: 120, baseExp: 134, jobExp: 96,
+    speed: 2.6, attacksPerSec: 1.2, aggressive: true, respawnSec: 20,
+    look: { color: '#d8502a', shape: 'humanoid', scale: 0.9 },
+    drops: {
+      sourceId: 'ember_imp', pools: ['ember_t4'],
+      drops: [
+        { itemId: 'imp_horn', ratePpm: 500_000 },
+        { itemId: 'ember_ash', ratePpm: 400_000, min: 1, max: 3 },
+        { itemId: 'white_potion', ratePpm: 30_000 },
+        { itemId: 'ember_essence', ratePpm: 3_000 },
+        { itemId: 'card_ember_imp', ratePpm: CARD, category: 'card' },
+      ],
+    },
+  },
+  {
+    id: 'lava_slime', name: '熔岩史萊姆', level: 72, hp: 13000, atk: 360, def: 110, hit: 180, flee: 40, baseExp: 158, jobExp: 114,
+    speed: 1.4, attacksPerSec: 0.8, aggressive: false, respawnSec: 20,
+    look: { color: '#ff7a1a', shape: 'slime', scale: 1.3 },
+    drops: {
+      sourceId: 'lava_slime', pools: ['ember_t4'],
+      drops: [
+        { itemId: 'jelly', ratePpm: 600_000, min: 2, max: 5 },
+        { itemId: 'magma_core', ratePpm: 200_000 },
+        { itemId: 'blue_potion', ratePpm: 40_000 },
+        { itemId: 'ember_essence', ratePpm: 4_000 },
+        { itemId: 'card_lava_slime', ratePpm: CARD, category: 'card' },
+      ],
+    },
+  },
+  {
+    id: 'obsidian_golem', name: '黑曜石魔像', level: 76, hp: 16500, atk: 450, def: 150, hit: 200, flee: 40, baseExp: 211, jobExp: 152,
+    speed: 1.1, attacksPerSec: 0.7, aggressive: false, respawnSec: 35,
+    look: { color: '#2a2238', shape: 'golem', scale: 1.7 },
+    drops: {
+      sourceId: 'obsidian_golem', pools: ['ember_t4'],
+      drops: [
+        { itemId: 'obsidian_shard', ratePpm: 250_000, min: 1, max: 2 },
+        { itemId: 'golem_core', ratePpm: 300_000 },
+        { itemId: 'ember_essence', ratePpm: 8_000 },
+        { itemId: 'lava_greaves', ratePpm: 1_200 },
+        { itemId: 'star_crystal', ratePpm: 80 },
+        { itemId: 'card_obsidian_golem', ratePpm: CARD, category: 'card' },
+      ],
+    },
+  },
+  {
+    id: 'hellhound', name: '煉獄犬', level: 79, hp: 13500, atk: 500, def: 90, hit: 250, flee: 140, baseExp: 195, jobExp: 140,
+    speed: 3, attacksPerSec: 1.2, aggressive: true, respawnSec: 25,
+    look: { color: '#5a1a14', shape: 'beast', scale: 1.35 },
+    drops: {
+      sourceId: 'hellhound', pools: ['ember_t4'],
+      drops: [
+        { itemId: 'hellfire_fang', ratePpm: 200_000 },
+        { itemId: 'ember_ash', ratePpm: 500_000, min: 1, max: 3 },
+        { itemId: 'ember_essence', ratePpm: 10_000 },
+        { itemId: 'hellhound_collar', ratePpm: 300 },
+        { itemId: 'card_hellhound', ratePpm: CARD, category: 'card' },
+      ],
+    },
+  },
+  {
+    id: 'ember_knight', name: '餘燼騎士', level: 83, hp: 19000, atk: 560, def: 130, hit: 270, flee: 110, baseExp: 234, jobExp: 168,
+    speed: 1.7, attacksPerSec: 1, aggressive: true, respawnSec: 30,
+    look: { color: '#3a2a2a', shape: 'humanoid', scale: 1.3 },
+    drops: {
+      sourceId: 'ember_knight', pools: ['ember_t4'],
+      drops: [
+        { itemId: 'dark_steel', ratePpm: 280_000, min: 1, max: 2 },
+        { itemId: 'rune_fragment', ratePpm: 50_000 },
+        { itemId: 'ember_essence', ratePpm: 12_000 },
+        { itemId: 'ember_blade', ratePpm: 800 },
+        { itemId: 'ember_helm', ratePpm: 1_500 },
+        { itemId: 'scroll_weapon_blessed', ratePpm: 400 },
+        { itemId: 'card_ember_knight', ratePpm: CARD, category: 'card' },
+      ],
+    },
+  },
+  {
+    id: 'flame_wraith', name: '炎靈', level: 87, hp: 17500, atk: 620, def: 100, hit: 290, flee: 160, baseExp: 242, jobExp: 174,
+    speed: 2, attacksPerSec: 1, aggressive: true, respawnSec: 30,
+    look: { color: '#ffb040', shape: 'lich', scale: 1.3 },
+    drops: {
+      sourceId: 'flame_wraith', pools: ['ember_t4'],
+      drops: [
+        { itemId: 'ember_ash', ratePpm: 600_000, min: 2, max: 4 },
+        { itemId: 'ember_essence', ratePpm: 15_000 },
+        { itemId: 'inferno_staff', ratePpm: 1_000 },
+        { itemId: 'scroll_armor_blessed', ratePpm: 400 },
+        { itemId: 'card_flame_wraith', ratePpm: CARD, category: 'card' },
+      ],
+    },
+  },
+  {
+    id: 'ember_lord', name: '餘燼魔王', level: 92, hp: 400_000, atk: 780, def: 140, hit: 320, flee: 120, baseExp: 36000, jobExp: 22000,
+    speed: 1.8, attacksPerSec: 0.9, aggressive: true, respawnSec: 7200, mvp: true,
+    look: { color: '#b0200c', shape: 'lich', scale: 2.6 },
+    drops: {
+      sourceId: 'ember_lord',
+      drops: [
+        { itemId: 'lord_cinder', ratePpm: PPM, min: 2, max: 4 },
+        { itemId: 'ember_essence', ratePpm: 50_000, min: 2, max: 5 },
+        { itemId: 'scroll_weapon_blessed', ratePpm: 5_000 },
+        { itemId: 'scroll_armor_blessed', ratePpm: 5_000 },
+        { itemId: 'lord_heart', ratePpm: 300 },
+        { itemId: 'card_ember_lord', ratePpm: CARD, category: 'card' },
+      ],
+      mvpDrops: [
+        { itemId: 'scroll_protect', ratePpm: PPM, min: 2, max: 3 },
+        { itemId: 'ember_essence', ratePpm: 50_000, min: 3, max: 6 },
+        { itemId: 'abyss_edge', ratePpm: 50, pity: { startAfter: 40, stepPpm: 25 } },
       ],
     },
   },

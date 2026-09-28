@@ -28,7 +28,7 @@ tools/      掉寶平衡報表
 | **M0 原型** ✅ | 單機可玩：打怪、掉寶、強化、插卡、家園、交易所 | 完成 |
 | **M1 伺服器** ✅ | Node.js 權威伺服器（WebSocket）、PostgreSQL 存檔、Steam 登入票證驗證、稽核日誌、Docker + Caddy（自動 HTTPS / wss）、健康檢查與 Prometheus 指標、優雅關機。待辦：水平擴充（頻道 / 分片） | [部署手冊](deploy.md) |
 | **M2 多人** ✅ | 同地圖多人同步、組隊、玩家交易視窗、真人交易所、聊天、成就 | 可進行封閉測試 |
-| **M3 內容**（進行中） | 已完成：第二張地圖（Lv 50~70）、二轉 4 職、33 個技能。待辦：第三張地圖、地下城 | Steam「搶先體驗」頁面 |
+| **M3 內容**（進行中） | 已完成：第二張地圖（Lv 50~70）、第三張地圖餘燼深淵（Lv 70~90）、二轉 4 職、33 個技能。待辦：第四張地圖（Lv 90~99）、副本型地下城 | Steam「搶先體驗」頁面 |
 | **M4 Steam 整合** ✅（技術面） | Electron 打包（Win/Linux/Mac）、steamworks.js、成就、Overlay、Rich Presence、SteamPipe 設定。待辦：雲端設定、商店頁素材、分級 | 搶先體驗上架 |
 | **M5 營運** | 經濟儀表板、反作弊、RMT 偵測、活動系統 | 正式版 |
 
@@ -55,7 +55,7 @@ tools/      掉寶平衡報表
 ## 下一步建議
 
 1. **⏰ 提醒：用「自己的電腦 + Cloudflare Tunnel」開始封閉測試**（`npm run host` + `cloudflared tunnel --url http://localhost:8787`，步驟見 [部署手冊第 0 節](deploy.md#0-快速封測自己的電腦--cloudflare-tunnel免費)）
-2. 美術：替換管線已完成（見 [美術指南](../art/README.md)）。找美術用 Blockbench 製作 45 張方塊材質、9 個職業、15 種怪物、3 個 NPC 模型，放進 `art/` 即可
+2. 美術：替換管線已完成（見 [美術指南](../art/README.md)）。找美術用 Blockbench 製作 50 張方塊材質、9 個職業、22 種怪物、3 個 NPC 模型，放進 `art/` 即可
 3. 租一台主機照 [部署手冊](deploy.md) 架起測試伺服器
-4. 內容：第三張地圖、地下城
+4. 內容：第四張地圖（Lv 90~99）、副本型地下城（隊伍專屬、限時）
 5. 找 10~20 位玩家做封閉測試，用 `npm run sim:drops`、`npm run sim:leveling` 的報表對照真實數據

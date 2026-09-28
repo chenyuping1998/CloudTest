@@ -6,4 +6,5 @@ export type TileName =
   | 'roof' | 'stone_brick' | 'glass' | 'furnace_front' | 'furnace_side' | 'table_top' | 'table_side'
   | 'iron_block' | 'darkstone' | 'portal' | 'tallgrass' | 'flower_red' | 'flower_yellow'
   | 'mushroom_cap' | 'mushroom_stem' | 'moss_stone' | 'bookshelf' | 'hay' | 'wool_white'
-  | 'snow_top' | 'snow_side' | 'ice' | 'packed_ice' | 'spruce_log' | 'spruce_leaves' | 'frozen_grass';
+  | 'snow_top' | 'snow_side' | 'ice' | 'packed_ice' | 'spruce_log' | 'spruce_leaves' | 'frozen_grass'
+  | 'basalt_top' | 'basalt_side' | 'ash' | 'lava' | 'obsidian';

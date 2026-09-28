@@ -20,6 +20,7 @@ export const ATLAS_TILES: TileName[] = [
   'iron_block', 'darkstone', 'portal', 'tallgrass', 'flower_red', 'flower_yellow',
   'mushroom_cap', 'mushroom_stem', 'moss_stone', 'bookshelf', 'hay', 'wool_white',
   'snow_top', 'snow_side', 'ice', 'packed_ice', 'spruce_log', 'spruce_leaves', 'frozen_grass',
+  'basalt_top', 'basalt_side', 'ash', 'lava', 'obsidian',
 ];
 
 type RGB = [number, number, number];
@@ -304,6 +305,44 @@ const P: Record<TileName, (p: Painter) => void> = {
     p.noise('#2a4a32', 16, ['#1f3a26', '#35583c', '#e8f0f8']);
   },
   frozen_grass: (p) => p.noise('#8aa890', 12, ['#9ab8a0', '#e0e8ee', '#7a987f']),
+  basalt_top: (p) => {
+    p.noise('#3a3538', 14, ['#2c282a', '#48423f']);
+    // 裂縫裡透出的火光
+    for (let i = 0; i < 3; i++) {
+      let x = Math.floor(p.r() * 16);
+      let y = Math.floor(p.r() * 16);
+      for (let k = 0; k < 5; k++) {
+        p.set(x, y, hex(k === 2 ? '#ffb040' : '#d8502a'));
+        x += p.r() < 0.5 ? 1 : 0;
+        y += p.r() < 0.5 ? 1 : -1;
+      }
+    }
+  },
+  basalt_side: (p) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+      const d = (p.r() - 0.5) * 14;
+      // 玄武岩的直條柱狀節理
+      const c = hex(x % 4 === 0 ? '#262224' : '#3a3538');
+      p.set(x, y, [c[0] + d, c[1] + d, c[2] + d]);
+    }
+    for (let x = 0; x < TILE; x++) if (p.r() < 0.35) p.set(x, 0, hex('#5a4a44'));
+  },
+  ash: (p) => p.noise('#6a625e', 12, ['#5a524e', '#7a726c', '#8a4a30']),
+  lava: (p) => {
+    p.noise('#e8581a', 20, ['#ff9a2a', '#c83a10', '#ffc850']);
+    // 表面冷卻的暗色硬殼
+    for (let i = 0; i < 6; i++) {
+      const x0 = Math.floor(p.r() * 14);
+      const y0 = Math.floor(p.r() * 14);
+      p.set(x0, y0, hex('#6a2010'));
+      p.set(x0 + 1, y0, hex('#8a2a12'));
+      p.set(x0, y0 + 1, hex('#8a2a12'));
+    }
+  },
+  obsidian: (p) => {
+    p.noise('#1a1426', 8, ['#140f1e', '#241c34']);
+    for (let i = 0; i < 4; i++) p.set(Math.floor(p.r() * 16), Math.floor(p.r() * 16), hex('#6a4a9a'));
+  },
 };
 
 /** 單一 tile 的程序化像素（RGBA），匯出工具與圖集共用 */

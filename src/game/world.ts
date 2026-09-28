@@ -121,7 +121,10 @@ export class World {
   private npcs: NpcView[] = [];
   private portalPanes: THREE.Mesh[] = [];
   private clouds: THREE.Mesh[] = [];
+  /** 天氣粒子：雪往下飄（fall > 0）、火星往上飄（fall < 0） */
   private snow?: THREE.Points;
+  private snowFall = 2.2;
+  private hemi!: THREE.HemisphereLight;
   private occluders: THREE.Object3D[] = [];
   private time = 0;
   private camYaw = Math.PI / 4;
@@ -147,7 +150,8 @@ export class World {
     container.appendChild(this.renderer.domElement);
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.5, 400);
 
-    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x6a5a40, 1.5));
+    this.hemi = new THREE.HemisphereLight(0xdfefff, 0x6a5a40, 1.5);
+    this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xfff2d8, 2.0);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -376,7 +380,15 @@ export class World {
     const layout = zone === 'homestead' ? homesteadLayout(homeNodes) : worldLayout(zone);
     this.layout = layout;
     this.scene.background = skyTexture(layout.sky.top, layout.sky.bottom);
-    this.scene.fog = new THREE.Fog(layout.sky.fog, zone === 'homestead' ? 45 : zone === 'frost' ? 40 : 55, zone === 'homestead' ? 90 : zone === 'frost' ? 95 : 110);
+    const fog: [number, number] = zone === 'homestead' ? [45, 90] : zone === 'frost' ? [40, 95] : zone === 'ember' ? [30, 80] : [55, 110];
+    this.scene.fog = new THREE.Fog(layout.sky.fog, fog[0], fog[1]);
+    // 餘燼深淵：昏暗的紅色環境光，主光源像遠方的火光
+    const ember = zone === 'ember';
+    this.hemi.color.set(ember ? 0xff9a70 : 0xdfefff);
+    this.hemi.groundColor.set(ember ? 0x3a1a10 : 0x6a5a40);
+    this.hemi.intensity = ember ? 1.1 : 1.5;
+    this.sun.color.set(ember ? 0xffa070 : 0xfff2d8);
+    this.sun.intensity = ember ? 1.4 : 2.0;
     this.terrain = new Terrain(layout.grid);
     this.zoneRoot.add(this.terrain.build());
 
@@ -422,7 +434,22 @@ export class World {
       this.setNodeVisual(n, false);
     });
     this.snow = undefined;
-    if (zone === 'frost') {
+    if (zone === 'ember') {
+      // 火星：從地面緩緩往上飄的橘色光點
+      const n = 700;
+      const pos = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        pos[i * 3] = randRange(mathRng, -30, 30);
+        pos[i * 3 + 1] = randRange(mathRng, 0, 25);
+        pos[i * 3 + 2] = randRange(mathRng, -30, 30);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      this.snow = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffa040, size: 0.1, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+      this.snowFall = -1.1;
+      this.zoneRoot.add(this.snow);
+    } else if (zone === 'frost') {
+      this.snowFall = 2.2;
       // 下雪：在相機周圍循環掉落的白色方塊粒子
       const n = 1500;
       const pos = new Float32Array(n * 3);
@@ -436,7 +463,7 @@ export class World {
       this.snow = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.12, transparent: true, opacity: 0.9, depthWrite: false }));
       this.zoneRoot.add(this.snow);
     }
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < (zone === 'ember' ? 0 : 14); i++) {
       const c = cloudMesh(i * 97 + 13);
       c.position.set(randRange(mathRng, -layout.size, layout.size), 26 + Math.random() * 4, randRange(mathRng, -layout.size, layout.size));
       this.zoneRoot.add(c);
@@ -632,8 +659,9 @@ export class World {
     if (this.snow) {
       const arr = this.snow.geometry.attributes.position as THREE.BufferAttribute;
       for (let i = 0; i < arr.count; i++) {
-        let y = arr.getY(i) - dt * 2.2;
+        let y = arr.getY(i) - dt * this.snowFall;
         if (y < 0) y += 25;
+        else if (y > 25) y -= 25;
         arr.setY(i, y);
         arr.setX(i, arr.getX(i) + Math.sin(this.time + i) * dt * 0.3);
       }
@@ -844,6 +872,7 @@ export class World {
       grass_top: '#5f9a3a', path: '#a88a58', cobble: '#8a8a8a', sand: '#d8cb96', gravel: '#857f7a', stone: '#7d7d7d',
       darkstone: '#3a2f4a', stone_brick: '#4a4a4a', dirt: '#7a5234', hay: '#c8a440', leaves: '#2f6a20',
       snow_top: '#e8eef4', ice: '#9cc8f0', packed_ice: '#7aa4d0', frozen_grass: '#8aa890',
+      basalt_top: '#3a3538', ash: '#6a625e', lava: '#e8581a', obsidian: '#1a1426',
     };
     const grid = this.layout?.grid;
     if (!grid) return { size: 1, colors: ['#000'], zone: this.zone };

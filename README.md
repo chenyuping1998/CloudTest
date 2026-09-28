@@ -5,6 +5,7 @@
 
 ![方塊世界](docs/screenshot.png)
 ![介面](docs/screenshot-ui.png)
+![餘燼深淵](docs/screenshot-ember.png)
 
 ## 快速開始
 
@@ -53,8 +54,9 @@ npm run build:server # 產生正式版伺服器 dist-server/
 - **介面**：像素中文字體（俐方體 11 號，可商用）、金邊石板風格視窗、方塊頭像、旋轉小地圖、全服公告
 - **組隊**：6 人隊伍、經驗均分（+15%/人）、隊伍掉寶優先權、隊伍頻道
 - **第二張地圖**：霜語山脈（Lv 50~70），雪地、冰湖、6 種新怪物與 MVP 冰霜女王、新裝備層級
+- **第三張地圖**：餘燼深淵（Lv 70~90），發光流動的岩漿河、玄武岩柱、上飄的火星，6 種新怪物與 MVP 餘燼魔王、新裝備層級
 - **桌面版 / Steam**：Electron 打包（Windows / Linux / Mac）、Steam 成就 / Overlay / Rich Presence、SteamPipe 上傳設定（`steam/`）
-- **成就**：15 個，由伺服器判定、同步到 Steam
+- **成就**：19 個，由伺服器判定、同步到 Steam
 - **存檔**：自動存檔（單機存在本機；連線版存在 PostgreSQL）
 - **伺服器上線**：Steam 登入票證驗證、稽核日誌、每 IP 連線限制、健康檢查 / Prometheus 指標、Docker + Caddy 自動 HTTPS
 

@@ -50,6 +50,9 @@ const GEAR_BY_LEVEL: { lv: number; weapon: string; enchant: number; armor: strin
   { lv: 50, weapon: 'frost_greatsword', enchant: 6, armor: ['mithril_armor', 'iron_helm', 'snow_boots', 'buckler', 'golem_amulet'] },
   { lv: 55, weapon: 'frost_greatsword', enchant: 7, armor: ['frost_plate', 'frost_crown', 'snow_boots', 'buckler', 'golem_amulet'] },
   { lv: 62, weapon: 'frost_greatsword', enchant: 8, armor: ['frost_plate', 'frost_crown', 'snow_boots', 'buckler', 'giant_ring'] },
+  { lv: 70, weapon: 'ember_blade', enchant: 6, armor: ['obsidian_plate', 'frost_crown', 'lava_greaves', 'buckler', 'giant_ring'] },
+  { lv: 76, weapon: 'ember_blade', enchant: 7, armor: ['obsidian_plate', 'ember_helm', 'lava_greaves', 'buckler', 'giant_ring'] },
+  { lv: 82, weapon: 'ember_blade', enchant: 8, armor: ['obsidian_plate', 'ember_helm', 'lava_greaves', 'buckler', 'hellhound_collar'] },
 ];
 
 /** 近戰劍士的配點比例（依序投點，每點依 RO 公式計價） */
@@ -227,9 +230,9 @@ export function simulateLeveling(maxLevel = MAX_BASE_LEVEL, opts: PacingOptions 
  * 驗收區間：模擬結果必須落在目標曲線的 ±30% 之內（每 5 級檢查一次）。
  * 只檢查到「現有內容支援的等級」；之後的等級要等新地圖上線再開放檢查。
  */
-export const CONTENT_LEVEL_CAP = 70;
+export const CONTENT_LEVEL_CAP = 90;
 export const PACING_TOLERANCE = 0.3;
-export const PACING_CHECKPOINTS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70];
+export const PACING_CHECKPOINTS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90];
 
 export const MILESTONE_NOTES: Record<number, string> = {
   10: '第一晚就能轉職（約 1 小時）',
@@ -238,7 +241,9 @@ export const MILESTONE_NOTES: Record<number, string> = {
   40: '約一個月：接近 MVP 挑戰等級',
   50: '前往霜語山脈',
   60: '約半年（每天 1~2 小時）',
-  70: '現有內容上限，之後需要第三張地圖',
+  70: '前往餘燼深淵',
+  80: '約一年（每天 1~2 小時）',
+  90: '現有內容上限，之後需要第四張地圖',
 };
 
 // ============================================================ 目標曲線與怪物經驗校準

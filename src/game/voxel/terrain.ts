@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import type { Grid } from '../../shared/grid';
 import type { TileName } from '../../shared/tiles';
-import { blockMaterial, GeoBuilder, plantMaterial, waterMaterial } from './mesher';
+import { blockMaterial, GeoBuilder, lavaMaterial, plantMaterial, waterMaterial } from './mesher';
 
 /** 頂面角落被 0~3 個較高鄰格遮住時的亮度（Minecraft 平滑光照的簡化版） */
 const AO_LEVEL = [0.58, 0.74, 0.88, 1];
@@ -33,6 +33,7 @@ export class Terrain {
     const solid = new GeoBuilder();
     const plants = new GeoBuilder();
     const water = new GeoBuilder();
+    const lava = new GeoBuilder();
     const size = this.grid.size;
     const half = size / 2;
     for (let j = 0; j < size; j++) {
@@ -59,6 +60,7 @@ export class Terrain {
             solid.box(x0, y, z0, x0 + 1, y + 1, z0 + 1, tile, { faces: [f], ao: wallAo });
           }
         }
+        if (c.top === 'lava') lava.box(x0, H, z0, x0 + 1, H + 0.8, z0 + 1, 'lava', { faces: ['py'] });
         if (c.water) water.box(x0, H, z0, x0 + 1, H + 0.85, z0 + 1, 'water', { faces: ['py'] });
         if (c.plant) plants.cross(x0 + 0.5, H, z0 + 0.5, c.plant, c.plant === 'tallgrass' ? 0.8 : 0.7);
       }
@@ -70,6 +72,7 @@ export class Terrain {
     this.group.add(this.mesh);
     if (!plants.empty) this.group.add(new THREE.Mesh(plants.build(), plantMaterial()));
     if (!water.empty) this.group.add(new THREE.Mesh(water.build(), waterMaterial()));
+    if (!lava.empty) this.group.add(new THREE.Mesh(lava.build(), lavaMaterial()));
     return this.group;
   }
 }

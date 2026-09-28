@@ -479,6 +479,7 @@ export class GameServer {
     p.intent = undefined;
     p.conn.send({ t: 'zone', zone: zone.kind, owner: zone.owner, homestead: zone.home ? structuredClone(zone.home.data) : undefined });
     if (zone.kind === 'frost') this.achieve(p, 'FROST_ARRIVAL');
+    if (zone.kind === 'ember') this.achieve(p, 'EMBER_ARRIVAL');
     zone.nextSnap = 0;
   }
 
@@ -1030,6 +1031,7 @@ export class GameServer {
       this.achieve(pl, 'FIRST_BLOOD');
       if (m.def.id === 'bone_lich') this.achieve(pl, 'MVP_LICH');
       if (m.def.id === 'frost_queen') this.achieve(pl, 'MVP_QUEEN');
+      if (m.def.id === 'ember_lord') this.achieve(pl, 'MVP_EMBER_LORD');
       this.log(pl, `擊敗 ${m.def.name}，獲得 Base EXP ${be}${rested ? `（休息加成 +${rested}）` : ''}${capped < raw ? '（已達單次上限）' : ''}、Job EXP ${je}`, '#bcd');
       if (lv.baseLevelsGained) {
         const d = pl.ch.derived();
@@ -1646,6 +1648,7 @@ export class GameServer {
     if (lv >= 30) this.achieve(p, 'LEVEL_30');
     if (lv >= 50) this.achieve(p, 'LEVEL_50');
     if (lv >= 70) this.achieve(p, 'LEVEL_70');
+    if (lv >= 90) this.achieve(p, 'LEVEL_90');
     if (p.ch.data.classId !== 'novice') this.achieve(p, 'JOB_CHANGE');
     if (Object.values(p.ch.data.lifeSkills).some((s) => s.level >= 20)) this.achieve(p, 'MASTER_CRAFTER');
     if (p.home.data.level >= 2) this.achieve(p, 'HOME_LV2');
