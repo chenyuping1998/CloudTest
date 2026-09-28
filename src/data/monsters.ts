@@ -62,7 +62,7 @@ export const TREASURE_POOLS: TreasurePool[] = [
 
 export const MONSTERS: MonsterDef[] = [
   {
-    id: 'jelly_slime', name: '果凍史萊姆', level: 1, hp: 50, atk: 7, def: 0, hit: 5, flee: 2, baseExp: 6, jobExp: 4,
+    id: 'jelly_slime', name: '果凍史萊姆', level: 1, hp: 50, atk: 7, def: 0, hit: 5, flee: 2, baseExp: 32, jobExp: 23,
     speed: 1.2, attacksPerSec: 0.6, aggressive: false, respawnSec: 8,
     look: { color: '#ff8fb8', shape: 'slime', scale: 0.8 },
     drops: {
@@ -79,7 +79,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'hop_shroom', name: '跳跳菇', level: 5, hp: 130, atk: 14, def: 3, hit: 12, flee: 6, baseExp: 22, jobExp: 15,
+    id: 'hop_shroom', name: '跳跳菇', level: 5, hp: 130, atk: 14, def: 3, hit: 12, flee: 6, baseExp: 54, jobExp: 39,
     speed: 1.4, attacksPerSec: 0.7, aggressive: false, respawnSec: 10,
     look: { color: '#d9534f', shape: 'shroom', scale: 0.9 },
     drops: {
@@ -95,7 +95,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'grey_wolf', name: '灰狼', level: 10, hp: 320, atk: 30, def: 6, hit: 28, flee: 18, baseExp: 70, jobExp: 45,
+    id: 'grey_wolf', name: '灰狼', level: 10, hp: 320, atk: 30, def: 6, hit: 28, flee: 18, baseExp: 84, jobExp: 60,
     speed: 2.6, attacksPerSec: 0.9, aggressive: true, respawnSec: 15,
     look: { color: '#8a8f99', shape: 'beast', scale: 1.1 },
     drops: {
@@ -112,7 +112,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'goblin', name: '哥布林戰士', level: 15, hp: 540, atk: 48, def: 10, hit: 40, flee: 22, baseExp: 160, jobExp: 100,
+    id: 'goblin', name: '哥布林戰士', level: 15, hp: 540, atk: 48, def: 10, hit: 40, flee: 22, baseExp: 130, jobExp: 94,
     speed: 2, attacksPerSec: 0.9, aggressive: false, respawnSec: 15,
     look: { color: '#5aa45a', shape: 'humanoid', scale: 1 },
     drops: {
@@ -130,7 +130,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'skeleton', name: '骷髏士兵', level: 22, hp: 950, atk: 75, def: 18, hit: 60, flee: 30, baseExp: 380, jobExp: 240,
+    id: 'skeleton', name: '骷髏士兵', level: 22, hp: 950, atk: 75, def: 18, hit: 60, flee: 30, baseExp: 155, jobExp: 112,
     speed: 1.8, attacksPerSec: 1, aggressive: true, respawnSec: 20,
     look: { color: '#e8e2cf', shape: 'humanoid', scale: 1.1 },
     drops: {
@@ -149,7 +149,7 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'rock_golem', name: '岩石魔像', level: 30, hp: 2100, atk: 110, def: 40, hit: 75, flee: 20, baseExp: 900, jobExp: 560,
+    id: 'rock_golem', name: '岩石魔像', level: 30, hp: 2100, atk: 110, def: 40, hit: 75, flee: 20, baseExp: 180, jobExp: 130,
     speed: 1.1, attacksPerSec: 0.7, aggressive: false, respawnSec: 30,
     look: { color: '#8c7b6b', shape: 'golem', scale: 1.5 },
     drops: {
@@ -167,7 +167,41 @@ export const MONSTERS: MonsterDef[] = [
     },
   },
   {
-    id: 'bone_lich', name: '骸骨巫妖王', level: 45, hp: 40_000, atk: 260, def: 50, hit: 120, flee: 40, baseExp: 45_000, jobExp: 30_000,
+    id: 'shadow_knight', name: '暗影騎士', level: 37, hp: 2600, atk: 150, def: 45, hit: 100, flee: 45, baseExp: 196, jobExp: 141,
+    speed: 2, attacksPerSec: 1, aggressive: true, respawnSec: 25,
+    look: { color: '#3a3448', shape: 'humanoid', scale: 1.15 },
+    drops: {
+      sourceId: 'shadow_knight',
+      pools: ['field_t2'],
+      drops: [
+        { itemId: 'dark_steel', ratePpm: 280_000 },
+        { itemId: 'rune_fragment', ratePpm: 30_000 },
+        { itemId: 'chainmail', ratePpm: 3_000 },
+        { itemId: 'scroll_weapon', ratePpm: 4_000 },
+        { itemId: 'scroll_armor_blessed', ratePpm: 150 },
+        { itemId: 'card_knight', ratePpm: CARD, category: 'card' },
+      ],
+    },
+  },
+  {
+    id: 'magma_golem', name: '熔岩巨像', level: 44, hp: 4200, atk: 190, def: 60, hit: 110, flee: 25, baseExp: 258, jobExp: 186,
+    speed: 1.2, attacksPerSec: 0.8, aggressive: false, respawnSec: 35,
+    look: { color: '#5a3a30', shape: 'golem', scale: 1.6 },
+    drops: {
+      sourceId: 'magma_golem',
+      pools: ['field_t2'],
+      drops: [
+        { itemId: 'magma_core', ratePpm: 250_000 },
+        { itemId: 'mithril_ore', ratePpm: 120_000, min: 1, max: 2 },
+        { itemId: 'rough_ruby', ratePpm: 20_000 },
+        { itemId: 'scroll_weapon_blessed', ratePpm: 400 },
+        { itemId: 'star_crystal', ratePpm: 30 },
+        { itemId: 'card_magma', ratePpm: CARD, category: 'card' },
+      ],
+    },
+  },
+  {
+    id: 'bone_lich', name: '骸骨巫妖王', level: 45, hp: 40_000, atk: 260, def: 50, hit: 120, flee: 40, baseExp: 26000, jobExp: 16000,
     speed: 1.6, attacksPerSec: 0.8, aggressive: true, respawnSec: 3600, mvp: true,
     look: { color: '#7b4fd6', shape: 'lich', scale: 2.2 },
     drops: {

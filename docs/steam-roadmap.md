@@ -3,7 +3,12 @@
 ## 目前架構
 
 ```
-src/core/   純遊戲邏輯（TypeScript，無畫面相依）→ 之後直接搬到伺服器
+src/core/   純遊戲邏輯（TypeScript，無畫面相依）
+src/server/ 權威遊戲伺服器（單機模式在瀏覽器內跑、連線模式在 Node.js 跑）
+src/net/    用戶端⇄伺服器訊息格式、連線（本機 / WebSocket）
+src/shared/ 地圖配置等伺服器與用戶端共用資料
+src/balance/ 練功節奏模擬器
+server/     Node.js 伺服器進入點
 src/data/   物品、怪物、掉寶表、配方
 src/game/   Three.js 用戶端（方塊世界、UI）
 tests/      單元測試（掉率蒙地卡羅驗證、交易防複製等）
@@ -20,8 +25,8 @@ tools/      掉寶平衡報表
 
 | 階段 | 內容 | 產出 |
 |---|---|---|
-| **M0 原型**（目前） | 單機可玩：打怪、掉寶、強化、插卡、家園、交易所（模擬玩家） | 本分支 |
-| **M1 伺服器** | Node.js 權威伺服器（WebSocket），`core/` 搬到伺服器；帳號、資料庫（PostgreSQL）、物品 uid 發號、交易日誌 | 多人連線測試 |
+| **M0 原型** ✅ | 單機可玩：打怪、掉寶、強化、插卡、家園、交易所 | 完成 |
+| **M1 伺服器** ✅（原型） | Node.js 權威伺服器（WebSocket）、帳號密碼（scrypt）、檔案存檔、交易日誌、玩家交易、共用交易所、聊天。待辦：換 PostgreSQL、TLS、水平擴充 | `npm run server` |
 | **M2 多人** | 同地圖多人同步、組隊、玩家間交易視窗（`TradeSession` 已完成）、真人交易所 | 封閉測試 |
 | **M3 內容** | 3~5 張地圖、第二轉職、技能、地下城、更多 MVP | Steam「搶先體驗」頁面 |
 | **M4 Steam 整合** | Electron 打包、steamworks.js、Steam 登入、成就、雲端設定、商店頁素材、分級 | 搶先體驗上架 |

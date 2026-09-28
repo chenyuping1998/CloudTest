@@ -349,3 +349,4 @@ b { font-weight: normal; }
 .trade-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
 .trade-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 2px solid var(--gold-lo); }
 .trade-actions .muted { flex: 1; }
+.bar-rested { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(45deg, rgba(120, 190, 255, 0.55) 0 3px, rgba(120, 190, 255, 0.3) 3px 6px); }

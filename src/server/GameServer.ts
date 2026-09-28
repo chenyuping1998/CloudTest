@@ -10,7 +10,7 @@ import { rollDrops } from '../core/drops';
 import { enchantSuccessRate, ENCHANT_RULES, tryEnchant, type EnchantKind } from '../core/enchant';
 import { craft, gather, Homestead, refreshNode, type HomesteadData, type StationId } from '../core/homestead';
 import { createItem, getDef, UidGen } from '../core/items';
-import { addExp, applyDeathPenalty, expLevelModifier } from '../core/leveling';
+import { accrueRested, addExp, applyDeathPenalty, capKillExp, consumeRested, expLevelModifier } from '../core/leveling';
 import { Market, type Listing, type MarketStats, type Sale } from '../core/market';
 import { mathRng, randRange, type Rng } from '../core/rng';
 import { TradeSession, type Side } from '../core/trade';
@@ -266,6 +266,9 @@ export class GameServer {
       dirtySelf: true, dirtyHome: true, invitesFrom: new Set(), lastChat: 0, createdAt: rec.createdAt, passwordHash: rec.passwordHash,
     };
     if (p.ch.data.hp <= 0) p.ch.data.hp = p.ch.derived().maxHp;
+    const offlineHours = Math.max(0, (this.now() - rec.lastLogin) / 3_600_000);
+    const beforeRested = p.ch.data.restedExp ?? 0;
+    p.ch.data.restedExp = accrueRested(p.ch.progression.baseLevel, beforeRested, offlineHours);
     this.players.set(conn, p);
     this.byName.set(name, p);
     conn.send({ t: 'welcome', id: p.id, name, online: this.opts.online });
@@ -273,6 +276,7 @@ export class GameServer {
     this.enterZone(p, this.fieldZone());
     this.flushSelf(p);
     if (payout) this.log(p, `你離線期間交易所賣出了商品，入帳 ${payout.toLocaleString()}G`, '#ffd24a');
+    if ((p.ch.data.restedExp ?? 0) > beforeRested) this.log(p, `休息了一段時間，獲得休息經驗 ${(p.ch.data.restedExp! - beforeRested).toLocaleString()}（打怪經驗加倍直到用完）`, '#8fd0ff');
     this.saveAccount(p);
     this.broadcastPlayers();
     if (this.opts.online) this.broadcastChat(`${name} 進入了遊戲。`);
@@ -736,10 +740,15 @@ export class GameServer {
       if (!pl || pl.zone !== z) continue;
       const share = dmg / total;
       const mod = expLevelModifier(pl.ch.progression.baseLevel, m.def.level);
-      const be = Math.max(1, Math.floor(m.def.baseExp * mod * share));
-      const je = Math.max(1, Math.floor(m.def.jobExp * mod * share));
-      const lv = addExp(pl.ch.progression, be, je);
-      this.log(pl, `擊敗 ${m.def.name}，獲得 Base EXP ${be}、Job EXP ${je}`, '#bcd');
+      const prog = pl.ch.progression;
+      const raw = Math.max(1, Math.floor(m.def.baseExp * mod * share));
+      const capped = capKillExp(prog.baseLevel, raw);
+      const [rested, left] = consumeRested(pl.ch.data.restedExp ?? 0, capped);
+      pl.ch.data.restedExp = left;
+      const be = Math.min(capped + rested, capKillExp(prog.baseLevel, Number.MAX_SAFE_INTEGER) * 2);
+      const je = Math.max(1, Math.floor(Math.min(m.def.jobExp * mod * share, (m.def.jobExp / Math.max(1, m.def.baseExp)) * capped)));
+      const lv = addExp(prog, be, je);
+      this.log(pl, `擊敗 ${m.def.name}，獲得 Base EXP ${be}${rested ? `（休息加成 +${rested}）` : ''}${capped < raw ? '（已達單次上限）' : ''}、Job EXP ${je}`, '#bcd');
       if (lv.baseLevelsGained) {
         const d = pl.ch.derived();
         pl.ch.data.hp = d.maxHp;

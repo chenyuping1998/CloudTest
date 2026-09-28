@@ -35,6 +35,8 @@ export const ITEMS: ItemDef[] = [
   mat('rune_fragment', '符文碎片', R.Rare, 150, 1, '刻有古代文字的碎片，製作強化卷軸的關鍵材料。'),
   mat('golem_core', '魔像核心', R.Uncommon, 90, 5, '仍在微微跳動的石核。'),
   mat('lich_ash', '巫妖之塵', R.Rare, 800, 1, '骸骨巫妖王消散後留下的魔力塵埃。'),
+  mat('dark_steel', '暗鋼碎片', R.Uncommon, 120, 2, '暗影騎士盔甲的碎片，可重新熔鑄。'),
+  mat('magma_core', '熔岩核心', R.Uncommon, 180, 4, '仍在發燙的核心，蘊含大量火元素。'),
   // ---- 家園原料 ----
   mat('oak_log', '橡木原木', R.Common, 4, 3, '家園砍伐的橡木。'),
   mat('maple_log', '楓木原木', R.Common, 12, 3, '質地細密的楓木。'),
@@ -100,6 +102,8 @@ export const ITEMS: ItemDef[] = [
   card('card_goblin', '哥布林卡片', R.Epic, 'shield', { def: 4 }, '盾牌卡：DEF +4。'),
   card('card_skeleton', '骷髏士兵卡片', R.Epic, 'weapon', { atk: 15 }, '武器卡：ATK +15。'),
   card('card_golem', '岩石魔像卡片', R.Epic, 'armor', { def: 5, bonus: { vit: 4 } }, '鎧甲卡：VIT +4、DEF +5。'),
+  card('card_knight', '暗影騎士卡片', R.Epic, 'weapon', { atk: 10, bonus: { str: 2 } }, '武器卡：ATK +10、STR +2。'),
+  card('card_magma', '熔岩巨像卡片', R.Epic, 'armor', { def: 6, bonus: { vit: 3 } }, '鎧甲卡：VIT +3、DEF +6。'),
   card('card_lich', '骸骨巫妖王卡片', R.Mythic, 'accessory', { bonus: { int: 5, dex: 5 }, dropBonusPct: 5 }, 'MVP 卡：INT +5、DEX +5、掉寶率 +5%。'),
 
   // ---- 工具 ----

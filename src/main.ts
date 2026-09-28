@@ -128,10 +128,11 @@ function startGame(conn: Connection, name: string, password: string | undefined,
     });
     hud.log(`歡迎來到餘燼王國，${cs.name}！按 F1 查看說明${cs.online ? '，按 Enter 聊天' : ''}。`, '#ffe680');
     bindInput(cs, world, hud);
-    const clock = new THREE.Clock();
-    const loop = () => {
+    const timer = new THREE.Timer();
+    const loop = (t?: number) => {
       if (!world) return;
-      const dt = Math.min(clock.getDelta(), 0.1);
+      timer.update(t);
+      const dt = Math.min(timer.getDelta(), 0.1);
       world.update(dt);
       world.render();
       hud!.frame();

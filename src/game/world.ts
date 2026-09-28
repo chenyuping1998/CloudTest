@@ -139,7 +139,7 @@ export class World {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     container.appendChild(this.renderer.domElement);
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.5, 400);
 
@@ -195,6 +195,12 @@ export class World {
   }
 
   private newView(rig: Rig, x: number, z: number, yaw: number): View {
+    // 同種角色共用材質快取；每個實體複製一份材質（貼圖仍共用），受擊閃紅才不會整群一起變紅
+    rig.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map((m) => m.clone()) : mesh.material.clone();
+    });
     const y = this.groundY(x, z);
     rig.root.position.set(x, y, z);
     rig.yaw.rotation.y = yaw;

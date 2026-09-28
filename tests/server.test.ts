@@ -206,3 +206,25 @@ describe('GameServer: economy', () => {
     expect(b.last('chat')?.text).toBe('again');
   });
 });
+
+describe('GameServer: pacing safeguards', () => {
+  it('rested EXP is granted after being offline and doubles kill EXP', () => {
+    const { join, server, send, advance, storage } = setup();
+    const c = join('Rester');
+    server.disconnect(c);
+    const rec = storage.accounts.get('Rester')!;
+    rec.lastLogin -= 16 * 3_600_000; // 16 小時前
+    storage.accounts.set('Rester', rec);
+    const c2 = join('Rester');
+    expect(c2.of('log').some((l) => l.msg.includes('休息經驗'))).toBe(true);
+    const dbg = server.debugPlayer('Rester')!;
+    expect(dbg.ch.data.restedExp).toBeGreaterThan(0);
+    dbg.ch.data.stats.str = 99;
+    dbg.ch.data.stats.dex = 99;
+    const slime = server.debugMonsters().find((m) => m.def === 'jelly_slime' && !m.dead)!;
+    dbg.setPos(slime.x + 1, slime.z);
+    send(c2, { t: 'attack', id: slime.id });
+    advance(3);
+    expect(c2.of('log').some((l) => l.msg.includes('休息加成'))).toBe(true);
+  });
+});

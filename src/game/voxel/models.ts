@@ -476,6 +476,13 @@ export function monsterRig(m: MonsterDef): Rig {
           shirtDetail: (g) => { for (let y = 1; y < 11; y += 2) g.rect(1, y, 6, 1, '#6a6458'); g.rect(3, 0, 2, 12, '#b8b09a'); },
         });
       }
+      if (m.id === 'shadow_knight') {
+        return humanoid({
+          key: m.id, skin: '#2a2433', hair: '#2a2433', eyes: '#ff3a3a', shirt: '#3a3448', pants: '#2a2433', shoes: '#151218', weapon: 'sword',
+          hat: 'helmet', hatColor: '#4a4458', scale: s,
+          shirtDetail: (g) => { g.rect(0, 0, g.w, 2, '#5a5468'); g.rect(3, 2, 2, 9, '#7a2a3a'); g.rect(0, 10, g.w, 1, '#151218'); },
+        });
+      }
       return humanoid({
         key: m.id, skin: m.look.color, hair: '#2a4a1a', eyes: '#f0d020', shirt: '#7a5230', pants: '#5a3a1a', shoes: '#3a2a1a', face: 'goblin', weapon: 'sword', scale: s * 0.8,
         shirtDetail: (g) => { g.rect(0, 5, g.w, 2, '#3a2a1a'); g.px(3, 5, '#d9b44a'); },
@@ -485,8 +492,14 @@ export function monsterRig(m: MonsterDef): Rig {
       const body = new THREE.Group();
       body.scale.setScalar(s * 0.9);
       rig.yaw.add(body);
-      const stone = '#b0a898';
-      const moss = (g: PixelCanvas) => { for (let i = 0; i < 10; i++) g.rect(Math.floor(g.rand() * g.w), Math.floor(g.rand() * g.h), 2, 1, '#5a8a3a'); for (let i = 0; i < 12; i++) g.px(Math.floor(g.rand() * g.w), Math.floor(g.rand() * g.h), '#6a6258'); };
+      const magma = m.id === 'magma_golem';
+      const stone = magma ? '#4a3430' : '#b0a898';
+      // 一般魔像長青苔，熔岩巨像是發光的裂縫
+      const moss = (g: PixelCanvas) => {
+        const accent = magma ? '#ff7a1a' : '#5a8a3a';
+        for (let i = 0; i < 10; i++) g.rect(Math.floor(g.rand() * g.w), Math.floor(g.rand() * g.h), magma ? 1 : 2, magma ? 2 : 1, accent);
+        for (let i = 0; i < 12; i++) g.px(Math.floor(g.rand() * g.w), Math.floor(g.rand() * g.h), magma ? '#ffc04a' : '#6a6258');
+      };
       for (const side of [-1, 1]) {
         const leg = pivotTop(part({ key: `${m.id}-leg`, size: [6, 10, 6], base: stone, faces: { front: moss, side: moss } }), 10);
         leg.position.set(side * 4 * PX, 10 * PX, 0);
@@ -505,9 +518,14 @@ export function monsterRig(m: MonsterDef): Rig {
       }
       const head = new THREE.Group();
       head.position.y = 24 * PX;
-      head.add(part({ key: `${m.id}-head`, size: [8, 8, 8], base: stone, faces: { front: (g) => { g.rect(1, 3, 2, 1, '#ffd24a'); g.rect(5, 3, 2, 1, '#ffd24a'); g.rect(3, 4, 2, 3, '#6a6258'); } } }));
+      head.add(part({ key: `${m.id}-head`, size: [8, 8, 8], base: stone, faces: { front: (g) => { g.rect(1, 3, 2, 1, '#ffd24a'); g.rect(5, 3, 2, 1, '#ffd24a'); g.rect(3, 4, 2, 3, magma ? '#ff7a1a' : '#6a6258'); } } }));
       body.add(head);
       rig.head = head;
+      if (magma) {
+        const glow = new THREE.PointLight(0xff7a1a, 2, 6);
+        glow.position.y = 1.5;
+        rig.root.add(glow);
+      }
       return rig;
     }
     case 'lich': {

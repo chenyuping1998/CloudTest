@@ -365,13 +365,24 @@ export class Hud {
       ),
       bar(ch.data.hp / d.maxHp, 'hp', `HP ${fmt(ch.data.hp)} / ${fmt(d.maxHp)}`),
       bar(ch.data.sp / d.maxSp, 'sp', `SP ${fmt(ch.data.sp)} / ${fmt(d.maxSp)}`),
-      bar(Number.isFinite(bNeed) ? p.baseExp / bNeed : 1, 'exp thin', `Base EXP ${Number.isFinite(bNeed) ? ((p.baseExp / bNeed) * 100).toFixed(1) : 'MAX'}%`),
+      this.expBar(p.baseExp, bNeed, ch.data.restedExp ?? 0),
       bar(Number.isFinite(jNeed) ? p.jobExp / jNeed : 1, 'jexp thin', `Job EXP ${Number.isFinite(jNeed) ? ((p.jobExp / jNeed) * 100).toFixed(1) : 'MAX'}%`),
       h('div', { class: 'status-row' },
         h('span', { class: 'stat-chip gold' }, h('img', { src: pixelIcon('coin', 2) }), `${fmt(ch.data.gold)}`),
         h('span', { class: `stat-chip${wt > d.maxWeight ? ' warn' : ''}` }, h('img', { src: pixelIcon('weight', 2) }), `${fmt(wt)} / ${fmt(d.maxWeight)}`)),
       hint,
     );
+  }
+
+  /** Base EXP 條：淺藍色區段表示休息經驗（打怪時加倍） */
+  private expBar(exp: number, need: number, rested: number): HTMLElement {
+    if (!Number.isFinite(need)) return bar(1, 'exp thin', 'Base EXP MAX');
+    const pct = exp / need;
+    const restPct = Math.min(rested / need, 1 - pct);
+    const el = bar(pct, 'exp thin', `Base EXP ${(pct * 100).toFixed(1)}%${rested > 0 ? `　休息 +${Math.round((rested / need) * 100)}%` : ''}`);
+    if (restPct > 0) el.insertBefore(h('div', { class: 'bar-rested', style: `left:${pct * 100}%;width:${restPct * 100}%` }), el.lastChild);
+    el.title = rested > 0 ? `休息經驗 ${fmt(rested)}：打怪獲得的 Base 經驗加倍，直到用完。離線時會慢慢累積。` : '離線休息時會累積休息經驗。';
+    return el;
   }
 
   private drawMinimap(): void {

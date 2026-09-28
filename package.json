@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "sim:drops": "vite-node tools/simulate-drops.ts",
-    "server": "vite-node server/main.ts"
+    "server": "vite-node server/main.ts",
+    "sim:leveling": "vite-node tools/simulate-leveling.ts"
   },
   "license": "MIT",
   "dependencies": {

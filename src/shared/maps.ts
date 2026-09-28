@@ -39,6 +39,8 @@ export const FIELD_SPAWNS: [string, number, [number, number], number][] = [
   ['goblin', 7, [0, -22], 8],
   ['skeleton', 6, [-22, -19], 7],
   ['rock_golem', 4, [-22, 22], 6],
+  ['shadow_knight', 6, [23, -23], 6],
+  ['magma_golem', 4, [0, 26], 5],
   ['bone_lich', 1, [24, 24], 3],
 ];
 
@@ -78,6 +80,14 @@ function fieldColumn(x: number, z: number, noise: (x: number, z: number) => numb
     top = rng.next() < 0.7 ? 'stone' : 'gravel';
     under = 'stone';
     height = 1 + (n > 0.5 ? 1 : 0) + (n > 0.7 ? 1 : 0);
+  } else if (inRegion(0, 26, 7)) {
+    top = rng.next() < 0.6 ? 'darkstone' : 'gravel';
+    under = 'stone';
+    height = 1;
+  } else if (inRegion(23, -23, 7)) {
+    top = rng.next() < 0.5 ? 'stone_brick' : 'cobble';
+    under = 'stone';
+    height = 1;
   } else if (inRegion(24, 24, 6)) {
     top = 'darkstone';
     under = 'darkstone';

@@ -18,6 +18,8 @@ export interface CharacterData {
   inventory: InventoryData;
   equipment: Partial<Record<EquipSlot, ItemInstance>>;
   lifeSkills: Record<LifeSkillId, LifeSkill>;
+  /** 休息經驗池（離線累積） */
+  restedExp?: number;
 }
 
 export interface DerivedStats {

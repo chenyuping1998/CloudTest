@@ -29,17 +29,21 @@ export function statRaiseCost(current: number): number {
   return Math.floor((current - 1) / 10) + 2;
 }
 
-/** 等級差 → 經驗倍率：打比自己高的怪有獎勵，打太弱的怪經驗大減 */
+/**
+ * 等級差 → 經驗倍率。
+ * 用練功模擬器校準過：懲罰要夠陡，否則裝備成長後「秒殺低等怪」反而比打同等級怪更有效率，
+ * 玩家會一直待在新手區（RO 的經典問題）。打高等怪有獎勵，但風險也高。
+ */
 export function expLevelModifier(playerLevel: number, monsterLevel: number): number {
   const diff = monsterLevel - playerLevel;
   if (diff >= 16) return 1.4;
-  if (diff >= 10) return 1.25;
-  if (diff >= 3) return 1.1;
+  if (diff >= 10) return 1.3;
+  if (diff >= 3) return 1.15;
   if (diff >= -5) return 1;
-  if (diff >= -10) return 0.9;
-  if (diff >= -15) return 0.6;
-  if (diff >= -20) return 0.35;
-  return 0.1;
+  if (diff >= -10) return 0.7;
+  if (diff >= -15) return 0.4;
+  if (diff >= -20) return 0.2;
+  return 0.05;
 }
 
 export interface Progression {
@@ -110,4 +114,39 @@ export function addLifeSkillExp(s: LifeSkill, exp: number): number {
   }
   if (s.level >= MAX_LIFE_SKILL_LEVEL) s.exp = 0;
   return gained;
+}
+
+// ============================================================ 節奏保護機制
+
+/**
+ * 單次擊殺經驗上限：該等級升級所需的 50%。
+ * 防止「高等玩家幫忙打高等怪 / MVP」讓低等角色一口氣跳好幾級（帶練破壞節奏與經濟）。
+ */
+export const KILL_EXP_CAP_RATIO = 0.5;
+
+export function capKillExp(level: number, exp: number): number {
+  const need = baseExpToNext(level);
+  return Number.isFinite(need) ? Math.min(exp, Math.floor(need * KILL_EXP_CAP_RATIO)) : 0;
+}
+
+/**
+ * 休息經驗（Rested EXP）：離線時累積，打怪時額外給與同等經驗（雙倍）直到用完。
+ * - 每離線 8 小時累積「目前等級所需經驗」的 20%
+ * - 上限為目前等級所需經驗的 150%（約離線 2.5 天就滿）
+ * 讓每天只能玩一小時的玩家不會被重度玩家拉開太多，但不影響重度玩家的上限。
+ */
+export const RESTED_PER_8H = 0.2;
+export const RESTED_CAP_RATIO = 1.5;
+
+export function accrueRested(level: number, current: number, offlineHours: number): number {
+  const need = baseExpToNext(level);
+  if (!Number.isFinite(need) || offlineHours <= 0) return current;
+  const gain = need * RESTED_PER_8H * (offlineHours / 8);
+  return Math.floor(Math.min(current + gain, need * RESTED_CAP_RATIO));
+}
+
+/** 回傳 [這次擊殺的額外經驗, 剩餘休息經驗] */
+export function consumeRested(rested: number, killExp: number): [number, number] {
+  const bonus = Math.min(rested, killExp);
+  return [bonus, rested - bonus];
 }
