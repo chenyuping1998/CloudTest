@@ -50,6 +50,8 @@ export type ClientMsg =
   | { t: 'partyLeave' }
   | { t: 'partyKick'; name: string }
   | { t: 'partyShare'; mode: PartyShareMode }
+  | { t: 'storageDeposit'; uid: string; qty: number }
+  | { t: 'storageWithdraw'; uid: string; qty: number }
   | { t: 'learnSkill'; skill: string }
   | { t: 'skill'; skill: string; target?: number };
 

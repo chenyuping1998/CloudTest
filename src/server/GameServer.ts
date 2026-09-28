@@ -193,7 +193,7 @@ const EQUIP_SLOTS: readonly string[] = ['weapon', 'armor', 'helm', 'shield', 'bo
 
 const TRADE_BLOCKED = new Set<ClientMsg['t']>([
   'useItem', 'equip', 'unequip', 'enchant', 'compound', 'discard', 'craft', 'upgradeHome', 'upgradeStation',
-  'npcBuy', 'npcSell', 'marketList', 'marketBuy', 'marketCancel',
+  'npcBuy', 'npcSell', 'marketList', 'marketBuy', 'marketCancel', 'storageDeposit', 'storageWithdraw',
 ]);
 
 export class GameServer {
@@ -586,6 +586,14 @@ export class GameServer {
         }
         this.markSelf(p);
         return;
+      case 'storageDeposit':
+      case 'storageWithdraw': {
+        if (!this.nearNpc(p, 'storage') || typeof msg.uid !== 'string' || !finite(msg.qty)) return;
+        const r = msg.t === 'storageDeposit' ? ch.deposit(msg.uid, Math.floor(msg.qty)) : ch.withdraw(msg.uid, Math.floor(msg.qty));
+        if (!r.ok) this.log(p, r.reason!, '#f99');
+        this.markSelf(p);
+        return;
+      }
       case 'learnSkill': {
         const r = ch.learnSkill(String(msg.skill));
         if (r.ok) this.log(p, `學會了 ${SKILL_DB.get(msg.skill)!.name} Lv ${ch.skillLevel(msg.skill)}`, '#9fe0ff');
@@ -878,7 +886,8 @@ export class GameServer {
     if (now >= p.nextRegen) {
       p.nextRegen = now + 2000;
       const out = now - p.lastCombat > 4000;
-      if (!ch.isOverweight() && (ch.data.hp < d.maxHp || ch.data.sp < d.maxSp)) {
+      // 負重 50% 以上停止自然回復（RO 規則）
+      if (ch.weightTier() === 'ok' && (ch.data.hp < d.maxHp || ch.data.sp < d.maxSp)) {
         ch.data.hp = Math.min(d.maxHp, ch.data.hp + Math.max(1, Math.floor(d.maxHp * (out ? 0.03 : 0.005) + d.totalStats.vit / 5)));
         ch.data.sp = Math.min(d.maxSp, ch.data.sp + Math.max(1, Math.floor(d.maxSp * (out ? 0.03 : 0.01))));
         this.markSelf(p);
@@ -892,7 +901,16 @@ export class GameServer {
     return p.ch.classDef.ranged ? RANGED_RANGE : MELEE_RANGE;
   }
 
+  /** 負重 90% 以上不能戰鬥與採集（RO 規則），提示後取消目前的行動 */
+  private overloaded(p: PlayerEnt): boolean {
+    if (p.ch.weightTier() !== 'overloaded') return false;
+    this.log(p, '負重超過 90%，無法攻擊、施法或採集。請先把物品存進倉庫或賣掉。', '#f99');
+    p.intent = undefined;
+    return true;
+  }
+
   private playerAttack(p: PlayerEnt, z: Zone, m: MonsterEnt, now: number): void {
+    if (this.overloaded(p)) return;
     const ch = p.ch;
     const d = ch.derived(now);
     const atk = ch.classDef.magic ? Math.max(d.atk, d.matk) : d.atk;
@@ -924,6 +942,7 @@ export class GameServer {
     const z = p.zone;
     if (!def || def.kind !== 'active' || !z) return;
     if (p.ch.skillLevel(id) <= 0) return this.log(p, '尚未學會這個技能。', '#f99');
+    if (this.overloaded(p)) return;
     if (def.target === 'enemy') {
       const m = finite(target) ? z.monsters.find((x) => x.id === target && !x.dead) : undefined;
       if (!m) return this.log(p, '請先選擇目標。', '#f99');
@@ -1202,6 +1221,7 @@ export class GameServer {
   // ============================================================ 家園
 
   private doGather(p: PlayerEnt, z: Zone, nodeIndex: number, now: number): boolean {
+    if (this.overloaded(p)) return false;
     const home = z.home!;
     const state = home.data.nodes[nodeIndex];
     const def = state && NODE_DB.get(state.defId);
@@ -1768,10 +1788,10 @@ export class GameServer {
   // ============================================================ 測試 / 除錯用
 
   /** 僅供測試：取得玩家的角色與位置 */
-  debugPlayer(name: string): { ch: Character; x: number; z: number; zone?: string; setPos(x: number, z: number): void; sync(): void } | undefined {
+  debugPlayer(name: string): { ch: Character; x: number; z: number; zone?: string; setPos(x: number, z: number): void; give(defId: string, qty?: number): boolean; sync(): void } | undefined {
     const p = this.byName.get(name);
     if (!p) return undefined;
-    return { ch: p.ch, x: p.x, z: p.z, zone: p.zone?.key, setPos: (x, z) => { p.x = x; p.z = z; }, sync: () => this.markSelf(p) };
+    return { ch: p.ch, x: p.x, z: p.z, zone: p.zone?.key, setPos: (x, z) => { p.x = x; p.z = z; }, give: (defId, qty = 1) => p.ch.inventory.add(createItem(ITEM_DB, this.uids, defId, qty, { kind: 'system', at: this.now() })), sync: () => this.markSelf(p) };
   }
 
   debugMonsters(zone: WorldZoneId = 'field'): { id: number; def: string; x: number; z: number; hp: number; dead: boolean }[] {

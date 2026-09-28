@@ -412,10 +412,11 @@ export function playerRig(cls: ClassId): Rig {
   return humanoid(CLASS_LOOKS[cls]);
 }
 
-export function npcRig(id: 'shop' | 'market' | 'guide'): Rig {
+export function npcRig(id: 'shop' | 'market' | 'guide' | 'storage'): Rig {
   const looks: Record<string, HumanoidLook> = {
     shop: { key: 'npc-shop', skin: SKIN, hair: '#a0522d', shirt: '#b8733b', pants: '#4a3a2a', shoes: '#2a1a0a', hat: 'cap', hatColor: '#6b3a1a', shirtDetail: (g) => g.rect(1, 3, 6, 9, '#f0e0c0') },
     market: { key: 'npc-market', skin: SKIN, hair: '#d0d0d0', shirt: '#2a3f7f', pants: '#1a2a4a', shoes: '#111', hat: 'crown', shirtDetail: (g) => { g.rect(3, 0, 2, 12, '#d9b44a'); } },
+    storage: { key: 'npc-storage', skin: SKIN, hair: '#5a4a3a', shirt: '#4a6a3a', pants: '#3a3020', shoes: '#1a1208', hat: 'cap', hatColor: '#3a5a2a', shirtDetail: (g) => { g.rect(1, 5, 6, 1, '#8a6a3a'); g.rect(2, 7, 4, 4, '#b8a070'); } },
     guide: { key: 'npc-guide', skin: SKIN, hair: '#e0a0c0', shirt: '#8f3a6b', pants: '#5a1a3a', shoes: '#2a0a1a', robe: true, shirtDetail: (g) => { g.rect(0, 6, g.w, 1, '#ffd24a'); } },
   };
   const rig = humanoid(looks[id]);

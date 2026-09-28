@@ -27,7 +27,16 @@ export interface CharacterData {
   skills?: Record<string, number>;
   /** 進行中的增益效果（伺服器時間） */
   buffs?: { id: string; level: number; until: number }[];
+  /** 倉庫（城鎮倉庫管理員 / 家園管家）：格數多、不計負重 */
+  storage?: InventoryData;
 }
+
+export const STORAGE_CAPACITY = 300;
+
+/** RO 式負重分級：超過 50% 停止自然回復，超過 90% 無法攻擊、施法、採集 */
+export const WEIGHT_NO_REGEN = 0.5;
+export const WEIGHT_NO_ACTION = 0.9;
+export type WeightTier = 'ok' | 'heavy' | 'overloaded';
 
 export interface DerivedStats {
   totalStats: Stats;
@@ -73,6 +82,7 @@ export function newCharacter(name: string, db: ItemDb, uids: UidGen): Character 
 
 export class Character {
   readonly inventory: Inventory;
+  readonly storage: Inventory;
 
   constructor(
     private readonly db: ItemDb,
@@ -80,11 +90,12 @@ export class Character {
     readonly data: CharacterData,
   ) {
     this.inventory = Inventory.from(db, uids, data.inventory);
+    this.storage = Inventory.from(db, uids, data.storage ?? { capacity: STORAGE_CAPACITY, items: [] });
   }
 
-  /** 存檔用：背包以 Inventory 物件為準 */
+  /** 存檔用：背包與倉庫以 Inventory 物件為準 */
   serialize(): CharacterData {
-    return structuredClone({ ...this.data, inventory: this.inventory.toJSON() });
+    return structuredClone({ ...this.data, inventory: this.inventory.toJSON(), storage: this.storage.toJSON() });
   }
 
   get name(): string {
@@ -260,6 +271,39 @@ export class Character {
 
   isOverweight(): boolean {
     return this.inventory.totalWeight() > this.derived().maxWeight;
+  }
+
+  weightRatio(): number {
+    return this.inventory.totalWeight() / this.derived().maxWeight;
+  }
+
+  weightTier(): WeightTier {
+    const r = this.weightRatio();
+    return r >= WEIGHT_NO_ACTION ? 'overloaded' : r >= WEIGHT_NO_REGEN ? 'heavy' : 'ok';
+  }
+
+  /** 背包 → 倉庫（整筆成功或完全不動） */
+  deposit(uid: string, qty: number): { ok: boolean; reason?: string } {
+    return this.moveBetween(this.inventory, this.storage, uid, qty, false);
+  }
+
+  /** 倉庫 → 背包：要檢查背包格數與負重 */
+  withdraw(uid: string, qty: number): { ok: boolean; reason?: string } {
+    return this.moveBetween(this.storage, this.inventory, uid, qty, true);
+  }
+
+  private moveBetween(from: Inventory, to: Inventory, uid: string, qty: number, checkWeight: boolean): { ok: boolean; reason?: string } {
+    const it = from.get(uid);
+    if (!it) return { ok: false, reason: '物品不存在' };
+    if (!Number.isSafeInteger(qty) || qty <= 0 || qty > it.qty) return { ok: false, reason: '數量不正確' };
+    const moving = { ...it, qty };
+    if (!to.canAdd([moving])) return { ok: false, reason: to === this.storage ? '倉庫已滿' : '背包已滿' };
+    if (checkWeight && this.inventory.totalWeight() + getDef(this.db, it.defId).weight * qty > this.derived().maxWeight) {
+      return { ok: false, reason: '負重不足，拿不動了' };
+    }
+    const taken = from.take(uid, qty)!;
+    to.add(taken);
+    return { ok: true };
   }
 
   /** 裝備：bindOnEquip 物品在此綁定 */

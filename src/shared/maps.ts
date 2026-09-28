@@ -10,7 +10,7 @@ import type { TileName } from './tiles';
 export type ZoneId = 'field' | 'homestead' | 'frost' | 'ember';
 /** 所有玩家共用的野外地圖（家園是每人一份） */
 export type WorldZoneId = 'field' | 'frost' | 'ember';
-export type NpcId = 'shop' | 'market' | 'guide';
+export type NpcId = 'shop' | 'market' | 'guide' | 'storage';
 
 export interface TreeDef { x: number; z: number; leaves: TileName; trunk: number; spruce?: boolean }
 
@@ -83,6 +83,7 @@ export const NPC_POSITIONS: MapLayout['npcs'] = [
   { id: 'shop', name: '道具商人 瑪莉', x: -3.5, z: -3 },
   { id: 'market', name: '交易所管理員 奧斯卡', x: 3.5, z: -3 },
   { id: 'guide', name: '新手導覽員 露娜', x: 0.5, z: 4 },
+  { id: 'storage', name: '倉庫管理員 葛倫', x: 4.5, z: 3.5 },
 ];
 
 function fieldColumn(x: number, z: number, noise: (x: number, z: number) => number, rng: SeededRng): Column {
@@ -222,7 +223,7 @@ export function homesteadLayout(nodes: readonly NodeState[]): MapLayout {
   const fence: [number, number][] = [];
   for (let x = -17; x <= 17; x++) if (Math.abs(x) > 1) fence.push([x + 0.5, 17.5]);
   return {
-    zone: 'homestead', size, grid, spawn: { x: 0.5, z: 12.5 }, trees, graves: [], npcs: [],
+    zone: 'homestead', size, grid, spawn: { x: 0.5, z: 12.5 }, trees, graves: [], npcs: [{ id: 'storage', name: '管家 阿福', x: 2.5, z: 0.5 }],
     portals: [{ to: 'field', x: 0.5, z: 15 }], stations, nodes: nodePos, house: { x: 0.5, z: -4.5 },
     fences: [fence.slice(0, 16), fence.slice(16)],
     sky: { top: '#f0a860', bottom: '#ffe4b8', fog: 0xffe4b8 },
