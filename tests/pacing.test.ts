@@ -51,9 +51,11 @@ describe('monster EXP follows the calibration formula', () => {
 });
 
 describe('pacing safeguards', () => {
-  it('a single kill never gives more than half a level', () => {
-    expect(capKillExp(10, 1e9)).toBe(Math.floor(baseExpToNext(10) / 2));
-    expect(capKillExp(10, 5)).toBe(5);
+  it('a kill on a much stronger monster never gives more than half a level; normal kills are uncapped', () => {
+    expect(capKillExp(10, 1e9, 45)).toBe(Math.floor(baseExpToNext(10) / 2));
+    expect(capKillExp(10, 5, 45)).toBe(5);
+    expect(capKillExp(1, 32, 1)).toBe(32);
+    expect(capKillExp(10, 1e6, 15)).toBe(1e6);
   });
 
   it('killing far weaker monsters gives almost nothing', () => {
@@ -69,5 +71,18 @@ describe('pacing safeguards', () => {
     expect(accrueRested(20, 100, 0)).toBe(100);
     expect(consumeRested(50, 30)).toEqual([30, 20]);
     expect(consumeRested(10, 30)).toEqual([10, 0]);
+  });
+});
+
+describe('party pacing', () => {
+  it('grouping is rewarded but never makes solo play pointless', async () => {
+    const { partyEfficiency } = await import('../src/balance/pacing');
+    for (const lv of [15, 30, 45]) {
+      for (const n of [2, 3, 6]) {
+        const r = partyEfficiency(lv, n);
+        expect(r).toBeGreaterThan(0.8);
+        expect(r).toBeLessThan(1.6);
+      }
+    }
   });
 });

@@ -55,6 +55,7 @@ interface ItemView {
   defId: string;
   qty: number;
   owner?: string;
+  party?: string[];
   sprite: THREE.Sprite;
   pos: THREE.Vector3;
 }
@@ -285,6 +286,7 @@ export class World {
         this.items.set(s.id, v);
       }
       v.owner = s.owner;
+      v.party = s.party;
     }
     for (const [id, v] of this.items) {
       if (!seenI.has(id)) {
@@ -529,7 +531,7 @@ export class World {
     let bd = 6;
     for (const it of this.items.values()) {
       const d = it.pos.distanceTo(me.pos);
-      if (d < bd && (!it.owner || it.owner === this.cs.name)) {
+      if (d < bd && (!it.owner || it.owner === this.cs.name || it.party?.includes(this.cs.name))) {
         bd = d;
         best = it;
       }
@@ -706,7 +708,8 @@ export class World {
     const above = (v: View, extra = 0.35) => v.pos.clone().setY(v.pos.y + v.rig.height + extra);
     for (const p of this.players.values()) {
       const mine = p.id === this.cs.myId;
-      out.push({ pos: above(p), text: p.name, color: mine ? '#fff' : '#8fe0ff', kind: 'player', hp: mine ? undefined : p.hp / p.maxHp });
+      const ally = !mine && this.cs.isPartyMember(p.name);
+      out.push({ pos: above(p), text: ally ? `♦ ${p.name}` : p.name, color: mine ? '#fff' : ally ? '#8fe07a' : '#8fe0ff', kind: 'player', hp: mine ? undefined : p.hp / p.maxHp });
     }
     for (const m of this.monsters.values()) {
       if (m.dead) continue;
@@ -723,7 +726,7 @@ export class World {
     }
     for (const it of this.items.values()) {
       const def = getDef(ITEM_DB, it.defId);
-      const locked = it.owner && it.owner !== this.cs.name;
+      const locked = it.owner && it.owner !== this.cs.name && !it.party?.includes(this.cs.name);
       out.push({ pos: it.pos.clone().setY(it.pos.y + 0.8), text: `${def.name}${it.qty > 1 ? ` x${it.qty}` : ''}${locked ? `（${it.owner}）` : ''}`, color: locked ? '#8a8a8a' : RARITY_INFO[def.rarity].color, kind: 'item' });
     }
     for (const n of this.npcs) out.push({ pos: above(n), text: n.name, color: '#9fe0ff', kind: 'npc' });

@@ -120,13 +120,17 @@ export function addLifeSkillExp(s: LifeSkill, exp: number): number {
 
 /**
  * 單次擊殺經驗上限：該等級升級所需的 50%。
- * 防止「高等玩家幫忙打高等怪 / MVP」讓低等角色一口氣跳好幾級（帶練破壞節奏與經濟）。
+ * 只在「怪物比玩家高 5 級以上」時生效 —— 正常練功不受影響，
+ * 但可防止「高等玩家幫忙打高等怪 / MVP」讓低等角色一口氣跳好幾級（帶練破壞節奏與經濟）。
  */
 export const KILL_EXP_CAP_RATIO = 0.5;
+export const KILL_EXP_CAP_LEVEL_GAP = 5;
 
-export function capKillExp(level: number, exp: number): number {
+export function capKillExp(level: number, exp: number, monsterLevel = Infinity): number {
   const need = baseExpToNext(level);
-  return Number.isFinite(need) ? Math.min(exp, Math.floor(need * KILL_EXP_CAP_RATIO)) : 0;
+  if (!Number.isFinite(need)) return 0;
+  if (monsterLevel - level <= KILL_EXP_CAP_LEVEL_GAP) return exp;
+  return Math.min(exp, Math.floor(need * KILL_EXP_CAP_RATIO));
 }
 
 /**

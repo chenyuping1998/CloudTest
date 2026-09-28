@@ -191,8 +191,15 @@ function startGame(conn: Connection, name: string, password: string | undefined,
       case 'tradeInvite':
         hud.tradeInvite(msg.from);
         break;
+      case 'partyInvite':
+        hud.partyInvite(msg.from);
+        break;
+      case 'party':
+        cs.party = msg.view;
+        hud.markDirty();
+        break;
       case 'chat':
-        hud.chat(msg.from, msg.text, msg.system);
+        hud.chat(msg.from, msg.text, msg.system, msg.channel);
         break;
       case 'players':
         cs.onlinePlayers = msg.names;

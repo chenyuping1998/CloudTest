@@ -350,3 +350,17 @@ b { font-weight: normal; }
 .trade-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-top: 8px; border-top: 2px solid var(--gold-lo); }
 .trade-actions .muted { flex: 1; }
 .bar-rested { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(45deg, rgba(120, 190, 255, 0.55) 0 3px, rgba(120, 190, 255, 0.3) 3px 6px); }
+
+/* ---------- 隊伍 ---------- */
+.hud-party { position: fixed; left: 12px; top: 262px; width: 220px; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.party-title { display: flex; justify-content: space-between; align-items: center; color: var(--gold); border-bottom: 1px solid var(--line); padding-bottom: 3px; }
+.party-share { background: var(--slate-3); color: var(--ink-dim); border: 1px solid var(--line); cursor: pointer; padding: 0 6px; }
+.party-share.even { color: var(--ok); border-color: #2f6a28; }
+.party-share:disabled { cursor: default; }
+.party-member { padding: 2px 0; }
+.party-member.far { opacity: 0.55; }
+.party-name { display: flex; align-items: center; gap: 2px; }
+.party-name .crown { color: var(--gold-hi); margin-right: 3px; }
+.party-kick { margin-left: auto; background: none; border: none; color: var(--lack); cursor: pointer; font-size: 14px; padding: 0 2px; }
+.party-leave { align-self: flex-end; margin-top: 2px; }
+.log-line.chat.party { color: #8fe07a; }

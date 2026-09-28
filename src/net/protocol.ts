@@ -44,7 +44,31 @@ export type ClientMsg =
   | { t: 'tradeLock' }
   | { t: 'tradeUnlock' }
   | { t: 'tradeConfirm' }
-  | { t: 'tradeCancel' };
+  | { t: 'tradeCancel' }
+  | { t: 'partyInvite'; target: string }
+  | { t: 'partyRespond'; from: string; accept: boolean }
+  | { t: 'partyLeave' }
+  | { t: 'partyKick'; name: string }
+  | { t: 'partyShare'; mode: PartyShareMode };
+
+export type PartyShareMode = 'even' | 'each';
+
+export interface PartyMemberView {
+  name: string;
+  level: number;
+  cls: ClassId;
+  hp: number;
+  maxHp: number;
+  zone: string;
+  /** 是否在均分經驗的範圍內（同地圖、距離內、等級差內） */
+  inRange: boolean;
+}
+
+export interface PartyView {
+  leader: string;
+  share: PartyShareMode;
+  members: PartyMemberView[];
+}
 
 export interface PlayerSnap {
   id: number;
@@ -80,6 +104,8 @@ export interface ItemSnap {
   z: number;
   /** 撿取優先權擁有者（RO 式：擊殺者先撿） */
   owner?: string;
+  /** 擁有者所在隊伍的成員也可以撿 */
+  party?: string[];
 }
 
 export interface NodeSnap {
@@ -125,5 +151,7 @@ export type ServerMsg =
   | { t: 'market'; view: MarketView }
   | { t: 'trade'; view: TradeView | null }
   | { t: 'tradeInvite'; from: string }
-  | { t: 'chat'; from: string; text: string; system?: boolean }
+  | { t: 'chat'; from: string; text: string; system?: boolean; channel?: 'party' }
+  | { t: 'partyInvite'; from: string }
+  | { t: 'party'; view: PartyView | null }
   | { t: 'players'; names: string[] };

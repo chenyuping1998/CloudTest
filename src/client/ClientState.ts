@@ -6,7 +6,7 @@ import { Character, type CharacterData } from '../core/character';
 import { Homestead, type HomesteadData } from '../core/homestead';
 import { UidGen } from '../core/items';
 import type { Connection } from '../net/connection';
-import type { ClientMsg, MarketView, TradeView } from '../net/protocol';
+import type { ClientMsg, MarketView, PartyView, TradeView } from '../net/protocol';
 import { ITEM_DB } from '../data';
 import type { ZoneId } from '../shared/maps';
 
@@ -20,6 +20,7 @@ export class ClientState {
   zoneOwner = '';
   market?: MarketView;
   trade: TradeView | null = null;
+  party: PartyView | null = null;
   tradeInvites: string[] = [];
   onlinePlayers: string[] = [];
   private uids = new UidGen('client');
@@ -36,6 +37,10 @@ export class ClientState {
 
   setHome(data: HomesteadData): void {
     this.homestead = new Homestead(data);
+  }
+
+  isPartyMember(name: string): boolean {
+    return !!this.party?.members.some((m) => m.name === name);
   }
 
   /** 目前在自己的家園 */

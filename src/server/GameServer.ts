@@ -12,6 +12,7 @@ import { craft, gather, Homestead, refreshNode, type HomesteadData, type Station
 import { createItem, getDef, UidGen } from '../core/items';
 import { accrueRested, addExp, applyDeathPenalty, capKillExp, consumeRested, expLevelModifier } from '../core/leveling';
 import { Market, type Listing, type MarketStats, type Sale } from '../core/market';
+import { distributeExp, PARTY_MAX, PARTY_SHARE_DISTANCE, type ShareGroup } from '../core/party';
 import { mathRng, randRange, type Rng } from '../core/rng';
 import { TradeSession, type Side } from '../core/trade';
 import { Rarity, RARITY_INFO, STAT_KEYS, type ItemInstance } from '../core/types';
@@ -20,7 +21,7 @@ import {
   STATION_NAMES, initialHomestead, stationUpgradeCost,
 } from '../data';
 import type { MonsterDef } from '../data/monsters';
-import type { ClientMsg, MarketView, ServerMsg, TradeOfferView } from '../net/protocol';
+import type { ClientMsg, MarketView, PartyShareMode, PartyView, ServerMsg, TradeOfferView } from '../net/protocol';
 import { PROTOCOL_VERSION } from '../net/protocol';
 import { FIELD_SPAWNS, fieldLayout, homesteadLayout, NPC_POSITIONS, type MapLayout, type ZoneId } from '../shared/maps';
 import { BOT_NAMES, MarketBots } from './marketBots';
@@ -101,9 +102,18 @@ interface PlayerEnt extends Mover {
   dirtyHome: boolean;
   trade?: { session: TradeSession; side: Side; partner: PlayerEnt };
   invitesFrom: Set<string>;
+  party?: Party;
+  partyInvitesFrom: Set<string>;
   lastChat: number;
   createdAt: number;
   passwordHash?: string;
+}
+
+interface Party {
+  id: number;
+  leader: string;
+  members: string[];
+  share: PartyShareMode;
 }
 
 interface MonsterEnt extends Mover {
@@ -128,6 +138,7 @@ interface GroundItem {
   z: number;
   expireAt: number;
   owner?: string;
+  ownerParty?: number;
   ownerUntil: number;
 }
 
@@ -159,6 +170,8 @@ export class GameServer {
   private players = new Map<Conn, PlayerEnt>();
   private byName = new Map<string, PlayerEnt>();
   private zones = new Map<string, Zone>();
+  private parties = new Map<number, Party>();
+  private nextPartyPush = 0;
   private nextId = 1;
   readonly uids: UidGen;
   readonly market: Market;
@@ -198,6 +211,7 @@ export class GameServer {
     const p = this.players.get(conn);
     if (!p) return;
     this.cancelTrade(p, `${p.name} 離線了`);
+    this.leaveParty(p, `${p.name} 離線，退出了隊伍`);
     this.saveAccount(p);
     this.leaveZone(p);
     this.players.delete(conn);
@@ -263,7 +277,7 @@ export class GameServer {
     const p: PlayerEnt = {
       id: this.nextId++, conn, name, ch, home: new Homestead(rec.homestead), pity: new Map(rec.pity),
       x: 0, z: 0, yaw: 0, moving: false, swing: 0, nextAttack: 0, nextGather: 0, nextRegen: 0, lastCombat: -1e9,
-      dirtySelf: true, dirtyHome: true, invitesFrom: new Set(), lastChat: 0, createdAt: rec.createdAt, passwordHash: rec.passwordHash,
+      dirtySelf: true, dirtyHome: true, invitesFrom: new Set(), partyInvitesFrom: new Set(), lastChat: 0, createdAt: rec.createdAt, passwordHash: rec.passwordHash,
     };
     if (p.ch.data.hp <= 0) p.ch.data.hp = p.ch.derived().maxHp;
     const offlineHours = Math.max(0, (this.now() - rec.lastLogin) / 3_600_000);
@@ -495,6 +509,25 @@ export class GameServer {
       case 'tradeRespond':
         this.tradeRespond(p, msg.from, msg.accept);
         return;
+      case 'partyInvite':
+        this.partyInvite(p, msg.target);
+        return;
+      case 'partyRespond':
+        this.partyRespond(p, msg.from, msg.accept);
+        return;
+      case 'partyLeave':
+        this.leaveParty(p, `${p.name} 退出了隊伍`);
+        return;
+      case 'partyKick':
+        this.partyKick(p, msg.name);
+        return;
+      case 'partyShare':
+        if (p.party && p.party.leader === p.name && (msg.mode === 'even' || msg.mode === 'each')) {
+          p.party.share = msg.mode;
+          this.partyMsg(p.party, `經驗分配改為「${msg.mode === 'even' ? '均分' : '各自取得'}」`);
+          this.pushParty(p.party);
+        }
+        return;
       case 'tradeItem':
       case 'tradeGold':
       case 'tradeLock':
@@ -526,6 +559,10 @@ export class GameServer {
         this.sendMarket(sp);
       }
     });
+    if (now >= this.nextPartyPush) {
+      this.nextPartyPush = now + 1000;
+      for (const party of this.parties.values()) this.pushParty(party);
+    }
     if (now >= this.nextSave) {
       this.nextSave = now + SAVE_INTERVAL_MS;
       this.saveAll();
@@ -723,7 +760,6 @@ export class GameServer {
     m.target = undefined;
     this.zoneFx(z, { kind: 'poof', x: m.x, y: 0.5, z: m.z });
 
-    const total = [...m.damageBy.values()].reduce((s, v) => s + v, 0) || 1;
     // MVP / 撿取優先權：總傷害最高的在線玩家
     let top: PlayerEnt | undefined;
     let topDmg = -1;
@@ -734,18 +770,28 @@ export class GameServer {
         topDmg = dmg;
       }
     }
-    // 經驗值依傷害比例分配（RO 式）
-    for (const [name, dmg] of m.damageBy) {
+    // 經驗分配：單人依傷害比例；隊伍均分時全隊（同地圖、距離內）平分並有人數加成
+    const groupOf = (name: string): ShareGroup | undefined => {
+      const pl = this.byName.get(name);
+      const party = pl?.party;
+      if (!party) return undefined;
+      const eligible = party.members
+        .map((n) => this.byName.get(n))
+        .filter((x): x is PlayerEnt => !!x && x.zone === z && Math.hypot(x.x - m.x, x.z - m.z) <= PARTY_SHARE_DISTANCE)
+        .map((x) => ({ name: x.name, level: x.ch.progression.baseLevel }));
+      return { partyId: party.id, mode: party.share, eligible };
+    };
+    const shares = distributeExp(m.damageBy, groupOf);
+    for (const [name, share] of shares) {
       const pl = this.byName.get(name);
       if (!pl || pl.zone !== z) continue;
-      const share = dmg / total;
       const mod = expLevelModifier(pl.ch.progression.baseLevel, m.def.level);
       const prog = pl.ch.progression;
       const raw = Math.max(1, Math.floor(m.def.baseExp * mod * share));
-      const capped = capKillExp(prog.baseLevel, raw);
+      const capped = capKillExp(prog.baseLevel, raw, m.def.level);
       const [rested, left] = consumeRested(pl.ch.data.restedExp ?? 0, capped);
       pl.ch.data.restedExp = left;
-      const be = Math.min(capped + rested, capKillExp(prog.baseLevel, Number.MAX_SAFE_INTEGER) * 2);
+      const be = capped + rested;
       const je = Math.max(1, Math.floor(Math.min(m.def.jobExp * mod * share, (m.def.jobExp / Math.max(1, m.def.baseExp)) * capped)));
       const lv = addExp(prog, be, je);
       this.log(pl, `擊敗 ${m.def.name}，獲得 Base EXP ${be}${rested ? `（休息加成 +${rested}）` : ''}${capped < raw ? '（已達單次上限）' : ''}、Job EXP ${je}`, '#bcd');
@@ -790,7 +836,7 @@ export class GameServer {
           x = m.x;
           zz = m.z;
         }
-        z.items.push({ id: this.nextId++, item, x, z: zz, expireAt: now + ITEM_LIFETIME_MS, owner: top.name, ownerUntil: now + LOOT_PRIORITY_MS });
+        z.items.push({ id: this.nextId++, item, x, z: zz, expireAt: now + ITEM_LIFETIME_MS, owner: top.name, ownerParty: top.party?.id, ownerUntil: now + LOOT_PRIORITY_MS });
       }
     }
   }
@@ -798,7 +844,8 @@ export class GameServer {
   private pickup(p: PlayerEnt, z: Zone, gi: GroundItem, now: number): void {
     const ch = p.ch;
     const def = getDef(ITEM_DB, gi.item.defId);
-    if (gi.owner && gi.owner !== p.name && now < gi.ownerUntil) {
+    const partyOk = gi.ownerParty !== undefined && p.party?.id === gi.ownerParty;
+    if (gi.owner && gi.owner !== p.name && !partyOk && now < gi.ownerUntil) {
       this.log(p, `這是 ${gi.owner} 的戰利品，${Math.ceil((gi.ownerUntil - now) / 1000)} 秒後才能撿取。`, '#f99');
       return;
     }
@@ -1109,6 +1156,13 @@ export class GameServer {
     const now = this.now();
     if (now - p.lastChat < 500) return this.log(p, '說話太快了。', '#f99');
     p.lastChat = now;
+    if (clean.startsWith('%')) {
+      const text = clean.slice(1).trim();
+      if (!p.party) return this.log(p, '你沒有隊伍。（% 開頭的訊息是隊伍頻道）', '#f99');
+      if (!text) return;
+      for (const n of p.party.members) this.byName.get(n)?.conn.send({ t: 'chat', from: p.name, text, channel: 'party' });
+      return;
+    }
     for (const o of this.players.values()) o.conn.send({ t: 'chat', from: p.name, text: clean });
   }
 
@@ -1233,6 +1287,97 @@ export class GameServer {
     }
   }
 
+  // ============================================================ 組隊
+
+  private partyMsg(party: Party, text: string): void {
+    for (const n of party.members) this.byName.get(n)?.conn.send({ t: 'chat', from: '隊伍', text, system: true, channel: 'party' });
+  }
+
+  private partyView(party: Party, viewer: PlayerEnt): PartyView {
+    return {
+      leader: party.leader,
+      share: party.share,
+      members: party.members.map((n) => {
+        const pl = this.byName.get(n)!;
+        const d = pl.ch.derived();
+        const inRange = pl === viewer || (pl.zone === viewer.zone && Math.hypot(pl.x - viewer.x, pl.z - viewer.z) <= PARTY_SHARE_DISTANCE);
+        return { name: n, level: pl.ch.progression.baseLevel, cls: pl.ch.data.classId, hp: pl.ch.data.hp, maxHp: d.maxHp, zone: pl.zone?.kind === 'homestead' ? `${pl.zone.owner} 的家園` : '晨曦平原', inRange };
+      }),
+    };
+  }
+
+  private pushParty(party: Party): void {
+    for (const n of party.members) {
+      const pl = this.byName.get(n);
+      if (pl) pl.conn.send({ t: 'party', view: this.partyView(party, pl) });
+    }
+  }
+
+  private partyInvite(p: PlayerEnt, target: string): void {
+    if (!valid(target) || target === p.name) return;
+    const o = this.byName.get(target);
+    if (!o) return this.log(p, `${target} 不在線上。`, '#f99');
+    if (o.party) return this.log(p, `${target} 已經有隊伍了。`, '#f99');
+    if (p.party && p.party.leader !== p.name) return this.log(p, '只有隊長可以邀請成員。', '#f99');
+    if (p.party && p.party.members.length >= PARTY_MAX) return this.log(p, `隊伍最多 ${PARTY_MAX} 人。`, '#f99');
+    o.partyInvitesFrom.add(p.name);
+    o.conn.send({ t: 'partyInvite', from: p.name });
+    this.log(p, `已邀請 ${target} 加入隊伍。`, '#9fe0ff');
+  }
+
+  private partyRespond(p: PlayerEnt, from: string, accept: boolean): void {
+    if (!valid(from) || !p.partyInvitesFrom.delete(from)) return;
+    const inviter = this.byName.get(from);
+    if (!inviter) return;
+    if (!accept) return this.log(inviter, `${p.name} 拒絕了組隊邀請。`, '#f99');
+    if (p.party) return this.log(p, '你已經有隊伍了。', '#f99');
+    let party = inviter.party;
+    if (!party) {
+      party = { id: this.nextId++, leader: inviter.name, members: [inviter.name], share: 'even' };
+      this.parties.set(party.id, party);
+      inviter.party = party;
+    }
+    if (party.members.length >= PARTY_MAX) return this.log(p, '隊伍已滿。', '#f99');
+    party.members.push(p.name);
+    p.party = party;
+    this.partyMsg(party, `${p.name} 加入了隊伍！`);
+    this.pushParty(party);
+  }
+
+  private partyKick(p: PlayerEnt, name: string): void {
+    const party = p.party;
+    if (!party || party.leader !== p.name || name === p.name) return;
+    const o = this.byName.get(name);
+    if (o && o.party === party) this.leaveParty(o, `${name} 被移出了隊伍`);
+  }
+
+  private leaveParty(p: PlayerEnt, reason: string): void {
+    const party = p.party;
+    if (!party) return;
+    this.partyMsg(party, reason);
+    party.members = party.members.filter((n) => n !== p.name);
+    p.party = undefined;
+    p.conn.send({ t: 'party', view: null });
+    if (party.members.length <= 1) {
+      // 只剩一人就解散
+      for (const n of party.members) {
+        const o = this.byName.get(n);
+        if (o) {
+          o.party = undefined;
+          o.conn.send({ t: 'party', view: null });
+          this.log(o, '隊伍已解散。', '#9fe0ff');
+        }
+      }
+      this.parties.delete(party.id);
+      return;
+    }
+    if (party.leader === p.name) {
+      party.leader = party.members[0];
+      this.partyMsg(party, `${party.leader} 成為新的隊長。`);
+    }
+    this.pushParty(party);
+  }
+
   // ============================================================ 傳送
 
   private markSelf(p: PlayerEnt): void {
@@ -1279,7 +1424,11 @@ export class GameServer {
       hp: p.ch.data.hp, maxHp: p.ch.derived().maxHp,
     }));
     const monsters = z.monsters.map((m) => ({ id: m.id, def: m.def.id, x: r(m.x), z: r(m.z), yaw: r(m.yaw), moving: m.moving, swing: m.swing, hp: m.hp, dead: m.dead }));
-    const items = z.items.map((it) => ({ id: it.id, defId: it.item.defId, qty: it.item.qty, x: r(it.x), z: r(it.z), owner: now < it.ownerUntil ? it.owner : undefined }));
+    const items = z.items.map((it) => {
+      const locked = now < it.ownerUntil;
+      const party = locked && it.ownerParty !== undefined ? this.parties.get(it.ownerParty)?.members : undefined;
+      return { id: it.id, defId: it.item.defId, qty: it.item.qty, x: r(it.x), z: r(it.z), owner: locked ? it.owner : undefined, party };
+    });
     const nodes = z.home
       ? z.home.data.nodes.map((n, i) => {
           refreshNode(n, NODE_DB.get(n.defId)!, now);

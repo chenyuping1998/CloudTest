@@ -47,6 +47,7 @@ export class Hud {
   private tradePanel: Panel;
   private chatInput: HTMLInputElement;
   private onlineEl: HTMLSpanElement;
+  private partyEl: HTMLDivElement;
   private tradeAddUid?: string;
   private tradeGoldDraft = '';
 
@@ -70,6 +71,7 @@ export class Hud {
     this.labelLayer = h('div', { class: 'label-layer' });
     this.floatLayer = h('div', { class: 'float-layer' });
     this.status = h('div', { class: 'hud-status frame' });
+    this.partyEl = h('div', { class: 'hud-party frame', style: 'display:none' });
     this.logEl = h('div', { class: 'hud-log' });
     this.announceEl = h('div', { class: 'hud-announce' });
     this.hotbar = h('div', { class: 'hud-hotbar' });
@@ -103,7 +105,7 @@ export class Hud {
     const logBox = h('div', { class: 'hud-logbox frame' }, h('div', { class: 'logbox-title' }, '訊息', this.onlineEl), this.logEl, this.chatInput);
     root.addEventListener('mousedown', () => (this.pointerDown = true));
     window.addEventListener('mouseup', () => (this.pointerDown = false));
-    root.append(this.labelLayer, this.floatLayer, this.status, menu, minimapBox, logBox, this.announceEl, this.hotbar, this.tooltip);
+    root.append(this.labelLayer, this.floatLayer, this.status, this.partyEl, menu, minimapBox, logBox, this.announceEl, this.hotbar, this.tooltip);
 
     this.inv = new Panel(root, '背包', { x: window.innerWidth - 400, y: 70, w: 370 }, () => (this.pending = undefined));
     this.stats = new Panel(root, '角色資訊', { x: 20, y: 200, w: 360 });
@@ -244,6 +246,7 @@ export class Hud {
       this.tradePanel.el.style.display = 'none';
     }
     this.renderStatus();
+    this.renderParty();
     this.renderHotbar();
     // 正在輸入的視窗不重繪，避免輸入內容與焦點被清掉
     const typing = document.activeElement instanceof HTMLInputElement ? document.activeElement.closest('.panel') : null;
@@ -267,8 +270,9 @@ export class Hud {
     this.chatInput.focus();
   }
 
-  chat(from: string, text: string, system = false): void {
-    const line = h('div', { class: `log-line chat${system ? ' system' : ''}` },
+  chat(from: string, text: string, system = false, channel?: 'party'): void {
+    const line = h('div', { class: `log-line chat${system ? ' system' : ''}${channel === 'party' ? ' party' : ''}` },
+      channel === 'party' ? '[隊伍] ' : '',
       system ? '' : h('span', { class: 'chat-name' }, `${from}：`), text);
     this.logEl.appendChild(line);
     while (this.logEl.childElementCount > 80) this.logEl.firstElementChild!.remove();
@@ -279,11 +283,43 @@ export class Hud {
     void ask(this.root, `<b>${escapeHtml(from)}</b> 想與你交易，要接受嗎？`, '接受').then((ok) => this.cs.send({ t: 'tradeRespond', from, accept: ok }));
   }
 
+  partyInvite(from: string): void {
+    void ask(this.root, `<b>${escapeHtml(from)}</b> 邀請你加入隊伍，要接受嗎？`, '加入').then((ok) => this.cs.send({ t: 'partyRespond', from, accept: ok }));
+  }
+
+  private renderParty(): void {
+    const party = this.cs.party;
+    if (!party) {
+      this.partyEl.style.display = 'none';
+      return;
+    }
+    this.partyEl.style.display = 'block';
+    const leader = party.leader === this.cs.name;
+    this.partyEl.replaceChildren(
+      h('div', { class: 'party-title' }, `隊伍（${party.members.length}/6）`,
+        h('button', {
+          class: `party-share${party.share === 'even' ? ' even' : ''}`,
+          title: leader ? '點擊切換經驗分配方式' : '只有隊長可以切換',
+          disabled: !leader,
+          onclick: () => this.cs.send({ t: 'partyShare', mode: party.share === 'even' ? 'each' : 'even' }),
+        }, party.share === 'even' ? '經驗均分' : '各自取得')),
+      ...party.members.map((m) => h('div', { class: `party-member${m.inRange ? '' : ' far'}` },
+        h('div', { class: 'party-name' },
+          m.name === party.leader ? h('span', { class: 'crown' }, '♛') : '',
+          m.name, h('span', { class: 'muted' }, ` Lv${m.level} ${CLASSES[m.cls].name}`),
+          leader && m.name !== this.cs.name ? h('button', { class: 'party-kick', title: '移出隊伍', onclick: () => this.cs.send({ t: 'partyKick', name: m.name }) }, '×') : ''),
+        bar(m.hp / m.maxHp, 'hp small', ''),
+        m.inRange ? '' : h('div', { class: 'muted small' }, `${m.zone}（不在分配範圍）`))),
+      h('button', { class: 'btn btn-small party-leave', onclick: () => this.cs.send({ t: 'partyLeave' }) }, '離開隊伍'),
+    );
+  }
+
   playerMenu(name: string, x: number, y: number): void {
     this.root.querySelector('.player-menu')?.remove();
     const menu = h('div', { class: 'player-menu frame', style: `left:${x}px;top:${y}px` },
       h('div', { class: 'player-menu-name' }, name),
       h('button', { class: 'btn btn-small', onclick: () => { this.cs.send({ t: 'tradeRequest', target: name }); menu.remove(); } }, '交易'),
+      this.cs.isPartyMember(name) ? '' : h('button', { class: 'btn btn-small', onclick: () => { this.cs.send({ t: 'partyInvite', target: name }); menu.remove(); } }, '組隊邀請'),
       h('button', { class: 'btn btn-small', onclick: () => { this.chatInput.value = `@${name} `; this.chatInput.focus(); menu.remove(); } }, '聊天'),
       h('button', { class: 'btn btn-small', onclick: () => menu.remove() }, '取消'),
     );

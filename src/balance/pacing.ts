@@ -19,6 +19,7 @@ import { createItem, getDef, UidGen } from '../core/items';
 import { baseExpToNext, expLevelModifier, jobExpToNext, JOB_CHANGE_LEVEL, MAX_BASE_LEVEL, MAX_JOB_LEVEL, statRaiseCost } from '../core/leveling';
 import type { StatKey } from '../core/types';
 import { ITEM_DB, MONSTERS } from '../data';
+import { partyBonus } from '../core/party';
 import type { MonsterDef } from '../data/monsters';
 
 export interface PacingOptions {
@@ -226,4 +227,32 @@ export function suggestMonsterExp(m: MonsterDef, opts: PacingOptions = DEFAULT_P
   const killsPerHour = (3600 / f.cycleSec) * opts.efficiency;
   const baseExp = Math.max(1, Math.round((targetExpPerHour(refLevel) / killsPerHour / expLevelModifier(refLevel, m.level)) * CALIBRATION_FACTOR));
   return { baseExp, jobExp: Math.max(1, Math.round(baseExp * JOB_EXP_RATIO)), refLevel, cycleSec: f.cycleSec };
+}
+
+// ============================================================ 組隊節奏
+
+/**
+ * 同等級 n 人隊伍在最佳練功點時，每位成員的每小時經驗 ÷ 單人的每小時經驗。
+ * 模型：輸出 ×n（擊殺時間 ÷n）、休息時間略增（坦克承受較多）、找怪時間 ÷√n（分散找怪、集體拉怪），
+ * 經驗平分並有人數加成。找怪時間仍是瓶頸，所以人越多邊際效益越低（符合地圖密度的限制）。
+ */
+export function partyEfficiency(level: number, size: number, opts: PacingOptions = DEFAULT_PACING): number {
+  const cls = level >= 11 ? 'swordsman' : 'novice';
+  const ch = simulatedCharacter(level, cls === 'novice' ? Math.min(9, level) : Math.min(50, level - 10), cls);
+  let bestSolo = 0;
+  let bestParty = 0;
+  for (const m of MONSTERS) {
+    if (m.mvp) continue;
+    const f = estimateFight(ch, m, opts);
+    const mod = expLevelModifier(level, m.level);
+    if (f.viable) bestSolo = Math.max(bestSolo, f.baseExpPerHour);
+    // 隊伍可以挑戰單人打不動的怪（坦補分工），但受到的傷害仍需休息回復
+    const ttk = f.ttkSec / size;
+    const rest = (f.restSec / size) * 1.2;
+    // 隊伍分散找怪、一起拉怪，找怪時間約以 √n 縮短
+    const cycle = ttk + rest + opts.searchSec / Math.sqrt(size);
+    const perMember = ((3600 / cycle) * opts.efficiency * m.baseExp * mod * partyBonus(size)) / size;
+    if (f.hpLossPerKill / size < opts.maxHpLossPerKill) bestParty = Math.max(bestParty, perMember);
+  }
+  return bestParty / bestSolo;
 }

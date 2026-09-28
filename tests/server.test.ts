@@ -228,3 +228,81 @@ describe('GameServer: pacing safeguards', () => {
     expect(c2.of('log').some((l) => l.msg.includes('休息加成'))).toBe(true);
   });
 });
+
+describe('GameServer: party', () => {
+  function killSlime(s: ReturnType<typeof setup>, killer: string, conn: FakeConn) {
+    const dbg = s.server.debugPlayer(killer)!;
+    dbg.ch.data.stats.str = 99;
+    dbg.ch.data.stats.dex = 99;
+    const slime = s.server.debugMonsters().find((m) => m.def === 'jelly_slime' && !m.dead)!;
+    dbg.setPos(slime.x + 1, slime.z);
+    s.send(conn, { t: 'attack', id: slime.id });
+    s.advance(3);
+    return slime;
+  }
+
+  it('invite → accept forms a party; even share gives exp to nearby members with bonus', () => {
+    const s = setup();
+    const a = s.join('Leader');
+    const b = s.join('Member');
+    s.send(a, { t: 'partyInvite', target: 'Member' });
+    expect(b.last('partyInvite')?.from).toBe('Leader');
+    s.send(b, { t: 'partyRespond', from: 'Leader', accept: true });
+    expect(a.last('party')?.view?.members.map((m) => m.name)).toEqual(['Leader', 'Member']);
+    const slime = killSlime(s, 'Leader', a);
+    s.server.debugPlayer('Member')!.setPos(slime.x + 2, slime.z);
+    const expB = () => s.server.debugPlayer('Member')!.ch.progression.baseExp + s.server.debugPlayer('Member')!.ch.progression.baseLevel * 1000;
+    const before = expB();
+    killSlime(s, 'Leader', a);
+    expect(expB()).toBeGreaterThan(before);
+    expect(b.of('log').some((l) => l.msg.includes('擊敗'))).toBe(true);
+  });
+
+  it('party members share loot priority; outsiders do not', () => {
+    const s = setup();
+    const a = s.join('Looter');
+    const b = s.join('Buddy');
+    const c = s.join('Stranger');
+    s.send(a, { t: 'partyInvite', target: 'Buddy' });
+    s.send(b, { t: 'partyRespond', from: 'Looter', accept: true });
+    killSlime(s, 'Looter', a);
+    const item = a.last('snap')!.items[0];
+    expect(item.party).toContain('Buddy');
+    s.server.debugPlayer('Stranger')!.setPos(item.x, item.z);
+    s.send(c, { t: 'pickup', id: item.id });
+    s.advance(0.3);
+    expect(c.of('log').some((l) => l.msg.includes('戰利品'))).toBe(true);
+    s.server.debugPlayer('Buddy')!.setPos(item.x, item.z);
+    s.send(b, { t: 'pickup', id: item.id });
+    s.advance(0.3);
+    expect(b.of('log').some((l) => l.msg.startsWith('獲得'))).toBe(true);
+  });
+
+  it('party chat with % only reaches members; leaving dissolves a 2-person party', () => {
+    const s = setup();
+    const a = s.join('P1');
+    const b = s.join('P2');
+    const c = s.join('P3');
+    s.send(a, { t: 'partyInvite', target: 'P2' });
+    s.send(b, { t: 'partyRespond', from: 'P1', accept: true });
+    s.send(a, { t: 'chat', text: '%集合！' });
+    expect(b.of('chat').some((m) => m.channel === 'party' && m.text === '集合！')).toBe(true);
+    expect(c.of('chat').some((m) => m.text === '集合！')).toBe(false);
+    s.send(b, { t: 'partyLeave' });
+    expect(a.last('party')?.view).toBeNull();
+    expect(b.last('party')?.view).toBeNull();
+  });
+
+  it('only the leader can invite, and parties are capped at 6', () => {
+    const s = setup();
+    const conns = ['Lead', 'M1', 'M2', 'M3', 'M4', 'M5', 'M6'].map((n) => s.join(n));
+    for (let i = 1; i <= 5; i++) {
+      s.send(conns[0], { t: 'partyInvite', target: `M${i}` });
+      s.send(conns[i], { t: 'partyRespond', from: 'Lead', accept: true });
+    }
+    s.send(conns[1], { t: 'partyInvite', target: 'M6' });
+    expect(conns[1].last('log')?.msg).toContain('隊長');
+    s.send(conns[0], { t: 'partyInvite', target: 'M6' });
+    expect(conns[0].last('log')?.msg).toContain('最多');
+  });
+});
