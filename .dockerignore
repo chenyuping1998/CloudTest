@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-server
+release
+server-data
+.git
+*.png
+!build/icon.png

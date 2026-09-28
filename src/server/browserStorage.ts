@@ -46,20 +46,25 @@ export class BrowserStorage implements ServerStorage {
     }
   }
 
-  loadAccount(name: string): AccountRecord | undefined {
+  async loadAccount(name: string): Promise<AccountRecord | undefined> {
     return read<AccountRecord>(`account:${name}`);
   }
 
-  saveAccount(rec: AccountRecord): void {
+  async saveAccount(rec: AccountRecord): Promise<void> {
     write(`account:${rec.name}`, rec);
     write('lastPlayer', rec.name);
   }
 
-  loadWorld(): WorldRecord | undefined {
+  /** 同步讀取世界資料（單機模式啟動時用） */
+  loadWorldSync(): WorldRecord | undefined {
     return read<WorldRecord>('world');
   }
 
-  saveWorld(rec: WorldRecord): void {
+  async loadWorld(): Promise<WorldRecord | undefined> {
+    return this.loadWorldSync();
+  }
+
+  async saveWorld(rec: WorldRecord): Promise<void> {
     write('world', rec);
   }
 

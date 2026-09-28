@@ -38,6 +38,8 @@ export interface Conn {
 export interface AccountRecord {
   name: string;
   passwordHash?: string;
+  /** 以 Steam 登入的帳號 */
+  steamId?: string;
   character: CharacterData;
   homestead: HomesteadData;
   pity: [string, number][];
@@ -50,17 +52,27 @@ export interface WorldRecord {
   market: { listings: Listing[]; history: Sale[]; stats: MarketStats; pendingPayouts: [string, number][] };
 }
 
+/** 存檔介面（非同步：正式環境是資料庫）。單機 / 測試用的實作直接回傳已完成的 Promise */
 export interface ServerStorage {
-  loadAccount(name: string): AccountRecord | undefined;
-  saveAccount(rec: AccountRecord): void;
-  loadWorld(): WorldRecord | undefined;
-  saveWorld(rec: WorldRecord): void;
+  loadAccount(name: string): Promise<AccountRecord | undefined>;
+  loadAccountBySteamId?(steamId: string): Promise<AccountRecord | undefined>;
+  saveAccount(rec: AccountRecord): Promise<void>;
+  loadWorld(): Promise<WorldRecord | undefined>;
+  saveWorld(rec: WorldRecord): Promise<void>;
+  /** 稽核紀錄（交易、強化蒸發、MVP 等），用來追查複製 bug 與 RMT */
+  audit?(kind: string, actor: string, data: unknown): Promise<void>;
 }
 
+export type SteamVerifier = (ticketHex: string) => Promise<{ steamId: string } | { error: string }>;
+
 export interface ServerOptions {
-  /** 連線模式需要密碼；單機模式不需要 */
+  /** 連線模式需要密碼（或 Steam 票證）；單機模式不需要 */
   online: boolean;
   storage: ServerStorage;
+  /** 啟動前先由呼叫端讀好的世界資料（交易所等） */
+  world?: WorldRecord;
+  /** 驗證 Steam 登入票證（連線模式、Steam 版） */
+  verifySteamTicket?: SteamVerifier;
   hashPassword?: (password: string) => string;
   verifyPassword?: (password: string, hash: string) => boolean;
   rng?: Rng;
@@ -112,6 +124,7 @@ interface PlayerEnt extends Mover {
   lastChat: number;
   createdAt: number;
   passwordHash?: string;
+  steamId?: string;
 }
 
 interface Party {
@@ -173,6 +186,11 @@ const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFi
 
 export class GameServer {
   private players = new Map<Conn, PlayerEnt>();
+  /** 登入處理中（等待資料庫）的連線與名稱，避免重複登入的競態 */
+  private pendingLogins = new Set<Conn>();
+  private pendingNames = new Set<string>();
+  /** 每個帳號的存檔串列，保證同一帳號的寫入依序完成 */
+  private saveChains = new Map<string, Promise<void>>();
   private byName = new Map<string, PlayerEnt>();
   private zones = new Map<string, Zone>();
   private parties = new Map<number, Party>();
@@ -188,7 +206,7 @@ export class GameServer {
   constructor(private readonly opts: ServerOptions) {
     this.rng = opts.rng ?? mathRng;
     this.now = opts.now ?? (() => Date.now());
-    const world = opts.storage.loadWorld();
+    const world = opts.world;
     this.uids = new UidGen(opts.uidPrefix ?? 'i', world?.uidCounter ?? 0);
     this.market = new Market(ITEM_DB);
     if (world) {
@@ -213,11 +231,12 @@ export class GameServer {
   }
 
   disconnect(conn: Conn): void {
+    this.pendingLogins.delete(conn);
     const p = this.players.get(conn);
     if (!p) return;
     this.cancelTrade(p, `${p.name} 離線了`);
     this.leaveParty(p, `${p.name} 離線，退出了隊伍`);
-    this.saveAccount(p);
+    void this.saveAccount(p);
     this.leaveZone(p);
     this.players.delete(conn);
     this.byName.delete(p.name);
@@ -228,7 +247,10 @@ export class GameServer {
   handle(conn: Conn, msg: ClientMsg): void {
     if (!msg || typeof msg !== 'object' || typeof (msg as { t?: unknown }).t !== 'string') return;
     if (msg.t === 'login') {
-      this.login(conn, msg);
+      void this.login(conn, msg).catch((e) => {
+        console.error('login error', e);
+        conn.send({ t: 'loginFailed', reason: '伺服器錯誤，請稍後再試。' });
+      });
       return;
     }
     const p = this.players.get(conn);
@@ -242,8 +264,8 @@ export class GameServer {
     }
   }
 
-  private login(conn: Conn, msg: Extract<ClientMsg, { t: 'login' }>): void {
-    if (this.players.has(conn)) return;
+  private async login(conn: Conn, msg: Extract<ClientMsg, { t: 'login' }>): Promise<void> {
+    if (this.players.has(conn) || this.pendingLogins.has(conn)) return;
     if (msg.version !== PROTOCOL_VERSION) {
       conn.send({ t: 'loginFailed', reason: '版本不符，請更新遊戲。' });
       return;
@@ -257,32 +279,69 @@ export class GameServer {
       conn.send({ t: 'loginFailed', reason: '此名稱無法使用。' });
       return;
     }
-    if (this.byName.has(name)) {
-      conn.send({ t: 'loginFailed', reason: '此角色已在線上。' });
-      return;
+    this.pendingLogins.add(conn);
+    try {
+      const rec = await this.authenticate(conn, msg, name);
+      if (!rec || !this.pendingLogins.has(conn)) return; // 驗證失敗或等待中已斷線
+      if (this.byName.has(rec.name) || this.pendingNames.has(rec.name)) {
+        conn.send({ t: 'loginFailed', reason: '此角色已在線上。' });
+        return;
+      }
+      this.enterWorld(conn, rec);
+    } finally {
+      this.pendingLogins.delete(conn);
     }
-    let rec = this.opts.storage.loadAccount(name);
-    if (this.opts.online) {
-      const pw = String(msg.password ?? '');
-      if (pw.length < 4) {
-        conn.send({ t: 'loginFailed', reason: '密碼至少 4 個字元。' });
-        return;
-      }
-      if (rec?.passwordHash && !this.opts.verifyPassword?.(pw, rec.passwordHash)) {
-        conn.send({ t: 'loginFailed', reason: '密碼錯誤。' });
-        return;
-      }
-      if (rec && !rec.passwordHash) rec.passwordHash = this.opts.hashPassword?.(pw);
-      if (!rec) rec = this.newAccount(name, this.opts.hashPassword?.(pw));
-    } else if (!rec) {
-      rec = this.newAccount(name);
+  }
+
+  /** 驗證身分並取得（或建立）帳號；失敗時回傳 undefined 並已通知用戶端 */
+  private async authenticate(conn: Conn, msg: Extract<ClientMsg, { t: 'login' }>, name: string): Promise<AccountRecord | undefined> {
+    const fail = (reason: string) => {
+      conn.send({ t: 'loginFailed', reason });
+      return undefined;
+    };
+    const st = this.opts.storage;
+    // 剛離線的角色可能還在存檔中：先等存檔完成再讀，避免讀到舊資料（回檔）
+    await this.saveChains.get(name);
+    if (!this.opts.online) return (await st.loadAccount(name)) ?? this.newAccount(name);
+
+    // Steam 登入：驗證票證取得 SteamID，以 SteamID 找帳號（不需要密碼）
+    if (msg.steamTicket) {
+      if (!this.opts.verifySteamTicket || !st.loadAccountBySteamId) return fail('此伺服器未開放 Steam 登入。');
+      const v = await this.opts.verifySteamTicket(String(msg.steamTicket));
+      if ('error' in v) return fail(`Steam 驗證失敗：${v.error}`);
+      const existing = await st.loadAccountBySteamId(v.steamId);
+      if (existing) return existing;
+      const taken = await st.loadAccount(name);
+      if (taken) return fail('這個角色名稱已被使用，請換一個。');
+      const rec = this.newAccount(name);
+      rec.steamId = v.steamId;
+      await st.saveAccount(rec);
+      void st.audit?.('account_created', name, { via: 'steam', steamId: v.steamId });
+      return rec;
     }
 
+    const pw = String(msg.password ?? '');
+    if (pw.length < 4) return fail('密碼至少 4 個字元。');
+    const rec = await st.loadAccount(name);
+    if (rec?.steamId && !rec.passwordHash) return fail('這是 Steam 帳號，請從 Steam 版登入。');
+    if (rec?.passwordHash && !this.opts.verifyPassword?.(pw, rec.passwordHash)) return fail('密碼錯誤。');
+    if (rec) {
+      if (!rec.passwordHash) rec.passwordHash = this.opts.hashPassword?.(pw);
+      return rec;
+    }
+    const created = this.newAccount(name, this.opts.hashPassword?.(pw));
+    await st.saveAccount(created);
+    void st.audit?.('account_created', name, { via: 'password' });
+    return created;
+  }
+
+  private enterWorld(conn: Conn, rec: AccountRecord): void {
+    const name = rec.name;
     const ch = new Character(ITEM_DB, this.uids, rec.character);
     const p: PlayerEnt = {
       id: this.nextId++, conn, name, ch, home: new Homestead(rec.homestead), pity: new Map(rec.pity),
       x: 0, z: 0, yaw: 0, moving: false, swing: 0, nextAttack: 0, nextGather: 0, nextRegen: 0, lastCombat: -1e9,
-      dirtySelf: true, dirtyHome: true, invitesFrom: new Set(), partyInvitesFrom: new Set(), cooldowns: new Map(), nextBuffCheck: 0, lastChat: 0, createdAt: rec.createdAt, passwordHash: rec.passwordHash,
+      dirtySelf: true, dirtyHome: true, invitesFrom: new Set(), partyInvitesFrom: new Set(), cooldowns: new Map(), nextBuffCheck: 0, lastChat: 0, createdAt: rec.createdAt, passwordHash: rec.passwordHash, steamId: rec.steamId,
     };
     if (p.ch.data.hp <= 0) p.ch.data.hp = p.ch.derived().maxHp;
     const offlineHours = Math.max(0, (this.now() - rec.lastLogin) / 3_600_000);
@@ -296,7 +355,8 @@ export class GameServer {
     this.flushSelf(p);
     if (payout) this.log(p, `你離線期間交易所賣出了商品，入帳 ${payout.toLocaleString()}G`, '#ffd24a');
     if ((p.ch.data.restedExp ?? 0) > beforeRested) this.log(p, `休息了一段時間，獲得休息經驗 ${(p.ch.data.restedExp! - beforeRested).toLocaleString()}（打怪經驗加倍直到用完）`, '#8fd0ff');
-    this.saveAccount(p);
+    void this.saveAccount(p);
+    this.audit('login', name, { steam: !!rec.steamId });
     this.broadcastPlayers();
     if (this.opts.online) this.broadcastChat(`${name} 進入了遊戲。`);
   }
@@ -317,21 +377,30 @@ export class GameServer {
 
   // ============================================================ 存檔
 
-  private saveAccount(p: PlayerEnt): void {
-    this.opts.storage.saveAccount({
+  private saveAccount(p: PlayerEnt): Promise<void> {
+    const rec: AccountRecord = {
       name: p.name,
       passwordHash: p.passwordHash,
+      steamId: p.steamId,
       character: p.ch.serialize(),
       homestead: structuredClone(p.home.data),
       pity: [...p.pity],
       createdAt: p.createdAt,
       lastLogin: this.now(),
+    };
+    // 同一帳號的寫入依序排隊，避免舊資料覆蓋新資料
+    const prev = this.saveChains.get(p.name) ?? Promise.resolve();
+    const next = prev.then(() => this.opts.storage.saveAccount(rec)).catch((e) => console.error('saveAccount failed', p.name, e));
+    this.saveChains.set(p.name, next);
+    void next.then(() => {
+      if (this.saveChains.get(p.name) === next) this.saveChains.delete(p.name);
     });
+    return next;
   }
 
-  saveAll(): void {
-    for (const p of this.players.values()) this.saveAccount(p);
-    this.opts.storage.saveWorld({
+  async saveAll(): Promise<void> {
+    const jobs: Promise<void>[] = [...this.players.values()].map((p) => this.saveAccount(p));
+    jobs.push(this.opts.storage.saveWorld({
       uidCounter: this.uids.value,
       market: {
         listings: this.market.listings,
@@ -339,7 +408,14 @@ export class GameServer {
         stats: this.market.stats,
         pendingPayouts: [...this.market.pendingPayouts],
       },
-    });
+    }).catch((e) => console.error('saveWorld failed', e)));
+    // 等待所有排隊中的帳號存檔（包含已離線玩家的最後一次存檔）
+    jobs.push(...this.saveChains.values());
+    await Promise.all(jobs);
+  }
+
+  private audit(kind: string, actor: string, data: unknown): void {
+    void this.opts.storage.audit?.(kind, actor, data)?.catch((e) => console.error('audit failed', e));
   }
 
   // ============================================================ 地圖
@@ -607,7 +683,7 @@ export class GameServer {
     }
     if (now >= this.nextSave) {
       this.nextSave = now + SAVE_INTERVAL_MS;
-      this.saveAll();
+      void this.saveAll();
     }
   }
 
@@ -985,7 +1061,10 @@ export class GameServer {
     for (const drop of drops) {
       const item = createItem(ITEM_DB, this.uids, drop.itemId, drop.qty, { kind: 'drop', sourceId: m.def.id, at: now });
       const def = getDef(ITEM_DB, drop.itemId);
-      if (drop.rarity >= Rarity.Epic) this.broadcastAnnounce(`【全服公告】${top.name} 從 ${m.def.name} 身上獲得了 ${def.name}！`, RARITY_INFO[def.rarity].color);
+      if (drop.rarity >= Rarity.Epic) {
+        this.broadcastAnnounce(`【全服公告】${top.name} 從 ${m.def.name} 身上獲得了 ${def.name}！`, RARITY_INFO[def.rarity].color);
+        this.audit('rare_drop', top.name, { uid: item.uid, defId: item.defId, qty: item.qty, source: m.def.id });
+      }
       if (drop.category === 'mvp' && top.ch.inventory.add(item)) {
         this.log(top, `MVP 獎勵：${def.name} x${drop.qty}`, RARITY_INFO[def.rarity].color);
         this.markSelf(top);
@@ -1225,6 +1304,7 @@ export class GameServer {
       this.announce(p, `強化失敗… 保護卷軸發揮效果，${tdef.name} 變為 +${res.newLevel}。`, '#fc8');
     } else if (res.outcome === 'destroyed') {
       ch.inventory.take(target.uid, 1);
+      this.audit('enchant_destroyed', p.name, { uid: target.uid, defId: target.defId, from: target.enchant });
       this.announce(p, `${tdef.name} 發出強烈的黑色光芒後蒸發了…`, '#f66');
     }
     this.markSelf(p);
@@ -1285,6 +1365,7 @@ export class GameServer {
         this.log(p, `購買 ${def.name} x${r.sale!.qty}，花費 ${r.sale!.price.toLocaleString()}G`, '#ffd24a');
         this.achieve(p, 'FIRST_TRADE');
         if (seller) this.achieve(seller, 'FIRST_TRADE');
+        this.audit('market_sale', p.name, r.sale);
         if (seller) {
           this.announce(seller, `【交易所】${p.name} 買下了你的 ${def.name} x${r.sale!.qty}，入帳 ${r.sale!.sellerReceived.toLocaleString()}G`, '#ffd24a');
           this.markSelf(seller);
@@ -1408,7 +1489,7 @@ export class GameServer {
             }
             else this.log(x, `交易失敗：${r.reason}`, '#f99');
           }
-          if (r.ok && r.log) console.log('[trade]', JSON.stringify(r.log));
+          if (r.ok && r.log) this.audit('trade', r.log.a, r.log);
           return;
         }
         res = r;
@@ -1630,6 +1711,18 @@ export class GameServer {
         })
       : [];
     for (const p of z.players) p.conn.send({ t: 'snap', players, monsters, items, nodes });
+  }
+
+  /** 監控用統計 */
+  stats(): { online: number; zones: number; listings: number; goldSunkFees: number; goldSunkTax: number; tradeVolume: number } {
+    return {
+      online: this.players.size,
+      zones: this.zones.size,
+      listings: this.market.listings.length,
+      goldSunkFees: this.market.stats.goldSunkFees,
+      goldSunkTax: this.market.stats.goldSunkTax,
+      tradeVolume: this.market.stats.volume,
+    };
   }
 
   // ============================================================ 測試 / 除錯用

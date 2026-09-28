@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('steam', {
   steamId: info.steamId,
   activateAchievement: (id) => ipcRenderer.invoke('steam:achievement', String(id)),
   setRichPresence: (key, value) => ipcRenderer.invoke('steam:presence', String(key), String(value)),
+  getAuthTicket: () => ipcRenderer.invoke('steam:ticket'),
 });
 
 contextBridge.exposeInMainWorld('desktop', {

@@ -18,7 +18,10 @@ npm run server     # 連線伺服器 ws://localhost:8787（標題畫面選「連
 npm run desktop    # 以 Electron 桌面版執行（有開 Steam 時會自動連上 Steam）
 npm run dist:win   # 打包 Windows 版到 release/win-unpacked（Linux：dist:linux、Mac：dist:mac）
 npm run build      # 產生 dist/
+npm run build:server # 產生正式版伺服器 dist-server/
 ```
+
+正式架設伺服器（PostgreSQL + HTTPS + Steam 登入）：見 [部署手冊](docs/deploy.md)，`cd deploy && docker compose up -d --build`。
 
 ## 操作
 
@@ -49,7 +52,8 @@ npm run build      # 產生 dist/
 - **第二張地圖**：霜語山脈（Lv 50~70），雪地、冰湖、6 種新怪物與 MVP 冰霜女王、新裝備層級
 - **桌面版 / Steam**：Electron 打包（Windows / Linux / Mac）、Steam 成就 / Overlay / Rich Presence、SteamPipe 上傳設定（`steam/`）
 - **成就**：15 個，由伺服器判定、同步到 Steam
-- **存檔**：自動存檔（單機存在本機；連線版存在伺服器）
+- **存檔**：自動存檔（單機存在本機；連線版存在 PostgreSQL）
+- **伺服器上線**：Steam 登入票證驗證、稽核日誌、每 IP 連線限制、健康檢查 / Prometheus 指標、Docker + Caddy 自動 HTTPS
 
 ## 文件
 
@@ -57,3 +61,4 @@ npm run build      # 產生 dist/
 - [經驗值與練功節奏設計](docs/leveling.md)／[練功節奏報表](docs/leveling-report.md)
 - [掉寶率與經濟設計](docs/drop-economy.md)／[掉寶平衡報表](docs/drop-report.md)
 - [上架 Steam 技術路線](docs/steam-roadmap.md)
+- [伺服器部署手冊](docs/deploy.md)

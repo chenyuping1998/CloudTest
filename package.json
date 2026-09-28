@@ -18,25 +18,30 @@
     "dist": "vite build && electron-builder --dir",
     "dist:win": "vite build && electron-builder --win --dir",
     "dist:linux": "vite build && electron-builder --linux --dir",
-    "dist:mac": "vite build && electron-builder --mac --dir"
+    "dist:mac": "vite build && electron-builder --mac --dir",
+    "build:server": "vite build --ssr server/main.ts --outDir dist-server --emptyOutDir",
+    "start:server": "node dist-server/main.js"
   },
   "license": "MIT",
   "dependencies": {
+    "pg": "^8.23.0",
     "steamworks.js": "^0.4.0",
     "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@chinese-fonts/cubic": "^3.0.0",
+    "@electric-sql/pglite": "^0.5.8",
     "@types/node": "^22.20.4",
+    "@types/pg": "^8.23.1",
     "@types/three": "^0.186.0",
     "@types/ws": "^8.18.1",
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3",
+    "three": "^0.186.1",
     "typescript": "^5.9.3",
     "vite": "^8.3.1",
     "vite-node": "^6.0.0",
-    "vitest": "^5.0.2",
-    "three": "^0.186.1",
-    "@chinese-fonts/cubic": "^3.0.0"
+    "vitest": "^5.0.2"
   },
   "main": "electron/main.cjs",
   "productName": "Realm of Embers",

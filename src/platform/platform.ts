@@ -8,6 +8,8 @@ export interface SteamBridge {
   steamId?: string;
   activateAchievement(id: string): void;
   setRichPresence(key: string, value: string): void;
+  /** 取得給伺服器驗證的 Steam 登入票證（十六進位字串） */
+  getAuthTicket(): Promise<string | null>;
 }
 
 export interface DesktopBridge {

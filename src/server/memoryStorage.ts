@@ -4,21 +4,31 @@ import type { AccountRecord, ServerStorage, WorldRecord } from './GameServer';
 export class MemoryStorage implements ServerStorage {
   accounts = new Map<string, AccountRecord>();
   world?: WorldRecord;
+  audits: { kind: string; actor: string; data: unknown }[] = [];
 
-  loadAccount(name: string): AccountRecord | undefined {
+  async loadAccount(name: string): Promise<AccountRecord | undefined> {
     const r = this.accounts.get(name);
     return r ? structuredClone(r) : undefined;
   }
 
-  saveAccount(rec: AccountRecord): void {
+  async loadAccountBySteamId(steamId: string): Promise<AccountRecord | undefined> {
+    const r = [...this.accounts.values()].find((a) => a.steamId === steamId);
+    return r ? structuredClone(r) : undefined;
+  }
+
+  async saveAccount(rec: AccountRecord): Promise<void> {
     this.accounts.set(rec.name, structuredClone(rec));
   }
 
-  loadWorld(): WorldRecord | undefined {
+  async loadWorld(): Promise<WorldRecord | undefined> {
     return this.world ? structuredClone(this.world) : undefined;
   }
 
-  saveWorld(rec: WorldRecord): void {
+  async saveWorld(rec: WorldRecord): Promise<void> {
     this.world = structuredClone(rec);
+  }
+
+  async audit(kind: string, actor: string, data: unknown): Promise<void> {
+    this.audits.push({ kind, actor, data: structuredClone(data) });
   }
 }

@@ -1,0 +1,23 @@
+# Caddy 會自動向 Let's Encrypt 申請憑證
+{$DOMAIN} {
+	encode gzip
+
+	# 遊戲連線：wss://{$DOMAIN}/ws
+	handle /ws* {
+		reverse_proxy game:8787
+	}
+
+	# 監控端點只給內部使用（Prometheus 請走內網直接連 game:8787/metrics）
+	handle /metrics {
+		respond 404
+	}
+	handle /health {
+		reverse_proxy game:8787
+	}
+
+	# 網頁版用戶端
+	handle {
+		root * /srv/web
+		file_server
+	}
+}

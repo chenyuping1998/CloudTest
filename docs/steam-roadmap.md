@@ -26,10 +26,10 @@ tools/      掉寶平衡報表
 | 階段 | 內容 | 產出 |
 |---|---|---|
 | **M0 原型** ✅ | 單機可玩：打怪、掉寶、強化、插卡、家園、交易所 | 完成 |
-| **M1 伺服器** ✅（原型） | Node.js 權威伺服器（WebSocket）、帳號密碼（scrypt）、檔案存檔、交易日誌、玩家交易、共用交易所、聊天。待辦：換 PostgreSQL、TLS、水平擴充 | `npm run server` |
+| **M1 伺服器** ✅ | Node.js 權威伺服器（WebSocket）、PostgreSQL 存檔、Steam 登入票證驗證、稽核日誌、Docker + Caddy（自動 HTTPS / wss）、健康檢查與 Prometheus 指標、優雅關機。待辦：水平擴充（頻道 / 分片） | [部署手冊](deploy.md) |
 | **M2 多人** ✅ | 同地圖多人同步、組隊、玩家交易視窗、真人交易所、聊天、成就 | 可進行封閉測試 |
-| **M3 內容**（進行中） | 已完成：第二張地圖（Lv 50~70）。待辦：第三張地圖、第二轉職、主動技能、地下城 | Steam「搶先體驗」頁面 |
-| **M4 Steam 整合** ✅（技術面） | Electron 打包（Win/Linux/Mac）、steamworks.js、成就、Overlay、Rich Presence、SteamPipe 設定。待辦：Steam 登入票證驗證（取代密碼）、雲端設定、商店頁素材、分級 | 搶先體驗上架 |
+| **M3 內容**（進行中） | 已完成：第二張地圖（Lv 50~70）、二轉 4 職、33 個技能。待辦：第三張地圖、地下城 | Steam「搶先體驗」頁面 |
+| **M4 Steam 整合** ✅（技術面） | Electron 打包（Win/Linux/Mac）、steamworks.js、成就、Overlay、Rich Presence、SteamPipe 設定。待辦：雲端設定、商店頁素材、分級 | 搶先體驗上架 |
 | **M5 營運** | 經濟儀表板、反作弊、RMT 偵測、活動系統 | 正式版 |
 
 ## Steam 上架清單
@@ -55,6 +55,6 @@ tools/      掉寶平衡報表
 ## 下一步建議
 
 1. 美術：用 Blockbench 製作正式的方塊模型與 16×16 材質，替換程序化生成的暫代美術（介面已預留：`voxel/atlas.ts`、`voxel/models.ts`）
-2. 伺服器上線準備：PostgreSQL、TLS（wss://）、Steam 登入票證驗證
-3. 內容：第二轉職與主動技能（目前 Job Lv 50 約在 Base Lv 50 封頂）、第三張地圖
+2. 租一台主機照 [部署手冊](deploy.md) 架起測試伺服器
+3. 內容：第三張地圖、地下城
 4. 找 10~20 位玩家做封閉測試，用 `npm run sim:drops`、`npm run sim:leveling` 的報表對照真實數據

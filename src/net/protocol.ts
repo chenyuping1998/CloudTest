@@ -12,7 +12,7 @@ import type { NpcId, ZoneId } from '../shared/maps';
 export const PROTOCOL_VERSION = 1;
 
 export type ClientMsg =
-  | { t: 'login'; name: string; password?: string; version: number }
+  | { t: 'login'; name: string; password?: string; steamTicket?: string; version: number }
   | { t: 'move'; x: number; z: number }
   | { t: 'attack'; id: number }
   | { t: 'pickup'; id: number }

@@ -69,6 +69,17 @@ ipcMain.handle('steam:presence', (_e, key, value) => {
   steam.localplayer.setRichPresence(key.slice(0, 64), value.slice(0, 256));
   return true;
 });
+// Steam 登入票證（給連線伺服器驗證用；identity 必須與伺服器 steamAuth.ts 的 STEAM_TICKET_IDENTITY 相同）
+ipcMain.handle('steam:ticket', async () => {
+  if (!steam) return null;
+  try {
+    const ticket = await steam.auth.getAuthTicketForWebApi('realm-of-embers', 10);
+    return ticket.getBytes().toString('hex');
+  } catch (e) {
+    console.warn('[steam] 取得登入票證失敗', e && e.message);
+    return null;
+  }
+});
 ipcMain.handle('desktop:fullscreen', (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (win) win.setFullScreen(!win.isFullScreen());

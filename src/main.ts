@@ -52,7 +52,8 @@ function titleLandscape(): HTMLCanvasElement {
   return c;
 }
 
-const DEFAULT_SERVER = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname || 'localhost'}:8787`;
+/** 預設伺服器：透過 HTTPS 開啟網頁版時走同網域的 /ws（Caddy 反向代理）；否則連本機開發伺服器 */
+const DEFAULT_SERVER = location.protocol === 'https:' ? `wss://${location.host}/ws` : `ws://${location.hostname || 'localhost'}:8787`;
 
 function titleScreen(error?: string): void {
   uiEl.replaceChildren();
@@ -63,6 +64,24 @@ function titleScreen(error?: string): void {
   const serverIn = h('input', { class: 'input wide', value: localStorage.getItem('roe:server') ?? DEFAULT_SERVER });
   const errorEl = h('div', { class: 'title-error' }, error ?? '');
   const body = h('div', { class: 'title-form' });
+  const goSteam = async () => {
+    errorEl.textContent = '向 Steam 取得登入票證…';
+    const ticket = await platform.steam?.getAuthTicket();
+    if (!ticket) {
+      errorEl.textContent = '無法取得 Steam 票證，請確認 Steam 已登入。';
+      return;
+    }
+    const name = nameIn.value.trim();
+    try {
+      localStorage.setItem('roe:mode', 'online');
+      localStorage.setItem('roe:name', name);
+      localStorage.setItem('roe:server', serverIn.value.trim());
+    } catch {
+      /* ignore */
+    }
+    errorEl.textContent = '連線中…';
+    startGame(new WsConnection(serverIn.value.trim()), name, undefined, (reason) => (errorEl.textContent = reason), ticket);
+  };
   const go = () => {
     const name = nameIn.value.trim();
     try {
@@ -82,11 +101,13 @@ function titleScreen(error?: string): void {
     body.replaceChildren(
       mode === 'online' ? h('label', { class: 'field' }, h('span', {}, '伺服器'), serverIn) : '',
       h('label', { class: 'field' }, h('span', {}, '角色'), nameIn),
-      mode === 'online' ? h('label', { class: 'field' }, h('span', {}, '密碼'), pwIn) : '',
+      mode === 'online' && !platform.steam ? h('label', { class: 'field' }, h('span', {}, '密碼'), pwIn) : '',
       h('div', { class: 'muted small' }, mode === 'online'
-        ? '第一次登入會用這組名稱與密碼建立帳號。'
+        ? platform.steam ? '以 Steam 帳號登入，不需要密碼。第一次登入會用上面的名稱建立角色。' : '第一次登入會用這組名稱與密碼建立帳號。'
         : last ? `上次遊玩：${last.name}（Lv ${last.level}）。輸入同名即可繼續，輸入新名字會建立新角色。` : '單機模式：資料存在這台電腦上。'),
-      h('button', { class: 'btn big btn-primary', onclick: go }, mode === 'online' ? '連線進入' : '開始冒險'),
+      mode === 'online' && platform.steam
+        ? h('button', { class: 'btn big btn-primary', onclick: () => void goSteam() }, `以 Steam 登入（${platform.steam.personaName ?? ''}）`)
+        : h('button', { class: 'btn big btn-primary', onclick: go }, mode === 'online' ? '連線進入' : '開始冒險'),
     );
   };
   const tabOff = h('button', { class: 'tab', onclick: () => { mode = 'offline'; renderForm(); } }, '單機遊玩');
@@ -109,7 +130,7 @@ function titleScreen(error?: string): void {
   uiEl.appendChild(screen);
 }
 
-function startGame(conn: Connection, name: string, password: string | undefined, onError: (reason: string) => void): void {
+function startGame(conn: Connection, name: string, password: string | undefined, onError: (reason: string) => void, steamTicket?: string): void {
   const cs = new ClientState(conn);
   let world: World | undefined;
   let hud: Hud | undefined;
@@ -266,7 +287,7 @@ function startGame(conn: Connection, name: string, password: string | undefined,
       h('div', { class: 'modal-actions' }, h('button', { class: 'btn btn-primary', onclick: () => location.reload() }, '回到標題畫面'))));
     uiEl.appendChild(overlay);
   });
-  conn.send({ t: 'login', name, password, version: PROTOCOL_VERSION });
+  conn.send({ t: 'login', name, password, steamTicket, version: PROTOCOL_VERSION });
 }
 
 function bindInput(cs: ClientState, world: World, hud: Hud): void {

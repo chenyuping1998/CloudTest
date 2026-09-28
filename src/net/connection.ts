@@ -18,7 +18,7 @@ export class LocalConnection implements Connection {
   private server: GameServer;
   private handlers: ((msg: ServerMsg) => void)[] = [];
   private timer: ReturnType<typeof setInterval>;
-  private saveOnUnload = () => this.server.saveAll();
+  private saveOnUnload = () => void this.server.saveAll();
   private conn = {
     send: (msg: ServerMsg) => {
       // 模擬網路：非同步送達，避免在處理訊息時重入
@@ -28,7 +28,8 @@ export class LocalConnection implements Connection {
   };
 
   constructor() {
-    this.server = new GameServer({ online: false, storage: new BrowserStorage(), marketBots: true, uidPrefix: 'l' });
+    const storage = new BrowserStorage();
+    this.server = new GameServer({ online: false, storage, world: storage.loadWorldSync(), marketBots: true, uidPrefix: 'l' });
     let last = performance.now();
     this.timer = setInterval(() => {
       const now = performance.now();
@@ -52,7 +53,7 @@ export class LocalConnection implements Connection {
 
   close(): void {
     this.server.disconnect(this.conn);
-    this.server.saveAll();
+    void this.server.saveAll();
     clearInterval(this.timer);
     window.removeEventListener('beforeunload', this.saveOnUnload);
   }

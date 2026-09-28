@@ -20,12 +20,16 @@ class FakeConn implements Conn {
   }
 }
 
-function setup(online = false) {
+/** 等待非同步登入（資料庫讀取）完成 */
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+function setup(online = false, extra: Partial<ConstructorParameters<typeof GameServer>[0]> = {}) {
   let time = 1_000_000;
   const storage = new MemoryStorage();
   const server = new GameServer({
     online, storage, rng: new SeededRng(1), marketBots: false, now: () => time,
     hashPassword: (p) => `h:${p}`, verifyPassword: (p, h) => h === `h:${p}`,
+    ...extra,
   });
   const advance = (sec: number, step = 0.05) => {
     for (let t = 0; t < sec; t += step) {
@@ -33,9 +37,10 @@ function setup(online = false) {
       server.tick(step);
     }
   };
-  const join = (name: string, password?: string) => {
+  const join = async (name: string, password?: string, steamTicket?: string) => {
     const c = new FakeConn();
-    server.handle(c, { t: 'login', name, password, version: PROTOCOL_VERSION });
+    server.handle(c, { t: 'login', name, password, steamTicket, version: PROTOCOL_VERSION });
+    await flush();
     return c;
   };
   const send = (c: FakeConn, m: ClientMsg) => server.handle(c, m);
@@ -43,9 +48,9 @@ function setup(online = false) {
 }
 
 describe('GameServer: login & persistence', () => {
-  it('offline login creates a character with starter gear and sends state', () => {
+  it('offline login creates a character with starter gear and sends state', async () => {
     const { join } = setup();
-    const c = join('測試者');
+    const c = await join('測試者');
     expect(c.last('welcome')?.name).toBe('測試者');
     expect(c.last('zone')?.zone).toBe('field');
     const self = c.last('self')!.data;
@@ -53,40 +58,42 @@ describe('GameServer: login & persistence', () => {
     expect(self.inventory.items.some((i) => i.defId === 'red_potion')).toBe(true);
   });
 
-  it('online mode requires the right password and rejects duplicate logins', () => {
+  it('online mode requires the right password and rejects duplicate logins', async () => {
     const { join, server, storage } = setup(true);
-    const c = join('Alice', 'secret');
+    const c = await join('Alice', 'secret');
     expect(c.last('welcome')).toBeDefined();
-    expect(join('Alice', 'secret').last('loginFailed')?.reason).toContain('線上');
+    expect((await join('Alice', 'secret')).last('loginFailed')?.reason).toContain('線上');
     server.disconnect(c);
     expect(storage.accounts.get('Alice')?.passwordHash).toBe('h:secret');
-    expect(join('Alice', 'wrong').last('loginFailed')?.reason).toBe('密碼錯誤。');
-    expect(join('Alice', 'secret').last('welcome')).toBeDefined();
+    expect((await join('Alice', 'wrong')).last('loginFailed')?.reason).toBe('密碼錯誤。');
+    expect((await join('Alice', 'secret')).last('welcome')).toBeDefined();
   });
 
-  it('rejects bad names and wrong protocol versions', () => {
+  it('rejects bad names and wrong protocol versions', async () => {
     const { server } = setup();
     const c = new FakeConn();
     server.handle(c, { t: 'login', name: '<script>', version: PROTOCOL_VERSION });
+    await flush();
     expect(c.last('loginFailed')).toBeDefined();
     server.handle(c, { t: 'login', name: 'Bob', version: 999 });
+    await flush();
     expect(c.last('loginFailed')?.reason).toContain('版本');
   });
 
-  it('progress survives logout / login', () => {
+  it('progress survives logout / login', async () => {
     const { join, server, send } = setup();
-    const c = join('Saver');
+    const c = await join('Saver');
     send(c, { t: 'raiseStat', stat: 'str' });
     server.disconnect(c);
-    const c2 = join('Saver');
+    const c2 = await join('Saver');
     expect(c2.last('self')!.data.stats.str).toBe(2);
   });
 });
 
 describe('GameServer: movement & combat', () => {
-  it('moves the player toward the clicked point, server-side', () => {
+  it('moves the player toward the clicked point, server-side', async () => {
     const { join, send, advance, server } = setup();
-    const c = join('Walker');
+    const c = await join('Walker');
     const start = server.debugPlayer('Walker')!;
     send(c, { t: 'move', x: start.x + 3, z: start.z });
     advance(2);
@@ -94,10 +101,10 @@ describe('GameServer: movement & combat', () => {
     expect(c.of('snap').length).toBeGreaterThan(5);
   });
 
-  it('killing a monster grants exp and drops loot with loot priority', () => {
+  it('killing a monster grants exp and drops loot with loot priority', async () => {
     const { join, send, advance, server } = setup();
-    const a = join('Hunter');
-    const b = join('Thief');
+    const a = await join('Hunter');
+    const b = await join('Thief');
     const dbg = server.debugPlayer('Hunter')!;
     dbg.ch.data.stats.str = 99; // 一擊必殺
     dbg.ch.data.stats.dex = 99;
@@ -121,9 +128,9 @@ describe('GameServer: movement & combat', () => {
     expect(a.of('log').some((l) => l.msg.startsWith('獲得'))).toBe(true);
   });
 
-  it('ignores attacks on invalid targets and malformed messages', () => {
+  it('ignores attacks on invalid targets and malformed messages', async () => {
     const { join, send, advance, server } = setup();
-    const c = join('Hacker');
+    const c = await join('Hacker');
     send(c, { t: 'attack', id: 999999 });
     send(c, { t: 'move', x: NaN, z: 1 } as ClientMsg);
     server.handle(c, { t: 'nonsense' } as unknown as ClientMsg);
@@ -134,17 +141,17 @@ describe('GameServer: movement & combat', () => {
 });
 
 describe('GameServer: economy', () => {
-  it('crafting is only allowed in your own homestead near the station', () => {
+  it('crafting is only allowed in your own homestead near the station', async () => {
     const { join, send } = setup();
-    const c = join('Crafter');
+    const c = await join('Crafter');
     send(c, { t: 'craft', recipe: 'plank_oak', times: 1 });
     expect(c.last('log')?.msg).toContain('家園');
   });
 
-  it('player-to-player trade via messages swaps items atomically', () => {
+  it('player-to-player trade via messages swaps items atomically', async () => {
     const { join, send, advance, server } = setup();
-    const a = join('Alice');
-    const b = join('Bob');
+    const a = await join('Alice');
+    const b = await join('Bob');
     server.debugPlayer('Bob')!.setPos(server.debugPlayer('Alice')!.x + 1, server.debugPlayer('Alice')!.z);
     const potion = a.last('self')!.data.inventory.items.find((i) => i.defId === 'red_potion')!;
     send(a, { t: 'tradeRequest', target: 'Bob' });
@@ -168,10 +175,10 @@ describe('GameServer: economy', () => {
     expect(bSelf.gold).toBe(400);
   });
 
-  it('shared exchange: one player lists, another buys, seller is paid live', () => {
+  it('shared exchange: one player lists, another buys, seller is paid live', async () => {
     const { join, send, advance, server } = setup();
-    const a = join('Seller');
-    const b = join('Buyer');
+    const a = await join('Seller');
+    const b = await join('Buyer');
     const npc = NPC_POSITIONS.find((n) => n.id === 'market')!;
     server.debugPlayer('Seller')!.setPos(npc.x + 1, npc.z);
     server.debugPlayer('Buyer')!.setPos(npc.x - 1, npc.z);
@@ -186,18 +193,18 @@ describe('GameServer: economy', () => {
     expect(a.of('announce').some((m) => m.msg.includes('Buyer'))).toBe(true);
   });
 
-  it('market actions require standing near the exchange NPC', () => {
+  it('market actions require standing near the exchange NPC', async () => {
     const { join, send, server } = setup();
-    const a = join('Faraway');
+    const a = await join('Faraway');
     server.debugPlayer('Faraway')!.setPos(20, 20);
     send(a, { t: 'marketBuy', id: 'x' });
     expect(a.last('log')?.msg).toContain('NPC');
   });
 
-  it('chat is broadcast and rate limited', () => {
+  it('chat is broadcast and rate limited', async () => {
     const { join, send, advance } = setup();
-    const a = join('Talker');
-    const b = join('Listener');
+    const a = await join('Talker');
+    const b = await join('Listener');
     send(a, { t: 'chat', text: '  哈囉！ ' });
     send(a, { t: 'chat', text: 'spam' });
     expect(b.of('chat').filter((m) => m.from === 'Talker').map((m) => m.text)).toEqual(['哈囉！']);
@@ -208,14 +215,15 @@ describe('GameServer: economy', () => {
 });
 
 describe('GameServer: pacing safeguards', () => {
-  it('rested EXP is granted after being offline and doubles kill EXP', () => {
+  it('rested EXP is granted after being offline and doubles kill EXP', async () => {
     const { join, server, send, advance, storage } = setup();
-    const c = join('Rester');
+    const c = await join('Rester');
     server.disconnect(c);
+    await flush();
     const rec = storage.accounts.get('Rester')!;
     rec.lastLogin -= 16 * 3_600_000; // 16 小時前
     storage.accounts.set('Rester', rec);
-    const c2 = join('Rester');
+    const c2 = await join('Rester');
     expect(c2.of('log').some((l) => l.msg.includes('休息經驗'))).toBe(true);
     const dbg = server.debugPlayer('Rester')!;
     expect(dbg.ch.data.restedExp).toBeGreaterThan(0);
@@ -241,10 +249,10 @@ describe('GameServer: party', () => {
     return slime;
   }
 
-  it('invite → accept forms a party; even share gives exp to nearby members with bonus', () => {
+  it('invite → accept forms a party; even share gives exp to nearby members with bonus', async () => {
     const s = setup();
-    const a = s.join('Leader');
-    const b = s.join('Member');
+    const a = await s.join('Leader');
+    const b = await s.join('Member');
     s.send(a, { t: 'partyInvite', target: 'Member' });
     expect(b.last('partyInvite')?.from).toBe('Leader');
     s.send(b, { t: 'partyRespond', from: 'Leader', accept: true });
@@ -258,11 +266,11 @@ describe('GameServer: party', () => {
     expect(b.of('log').some((l) => l.msg.includes('擊敗'))).toBe(true);
   });
 
-  it('party members share loot priority; outsiders do not', () => {
+  it('party members share loot priority; outsiders do not', async () => {
     const s = setup();
-    const a = s.join('Looter');
-    const b = s.join('Buddy');
-    const c = s.join('Stranger');
+    const a = await s.join('Looter');
+    const b = await s.join('Buddy');
+    const c = await s.join('Stranger');
     s.send(a, { t: 'partyInvite', target: 'Buddy' });
     s.send(b, { t: 'partyRespond', from: 'Looter', accept: true });
     killSlime(s, 'Looter', a);
@@ -278,11 +286,11 @@ describe('GameServer: party', () => {
     expect(b.of('log').some((l) => l.msg.startsWith('獲得'))).toBe(true);
   });
 
-  it('party chat with % only reaches members; leaving dissolves a 2-person party', () => {
+  it('party chat with % only reaches members; leaving dissolves a 2-person party', async () => {
     const s = setup();
-    const a = s.join('P1');
-    const b = s.join('P2');
-    const c = s.join('P3');
+    const a = await s.join('P1');
+    const b = await s.join('P2');
+    const c = await s.join('P3');
     s.send(a, { t: 'partyInvite', target: 'P2' });
     s.send(b, { t: 'partyRespond', from: 'P1', accept: true });
     s.send(a, { t: 'chat', text: '%集合！' });
@@ -293,9 +301,10 @@ describe('GameServer: party', () => {
     expect(b.last('party')?.view).toBeNull();
   });
 
-  it('only the leader can invite, and parties are capped at 6', () => {
+  it('only the leader can invite, and parties are capped at 6', async () => {
     const s = setup();
-    const conns = ['Lead', 'M1', 'M2', 'M3', 'M4', 'M5', 'M6'].map((n) => s.join(n));
+    const conns: FakeConn[] = [];
+    for (const n of ['Lead', 'M1', 'M2', 'M3', 'M4', 'M5', 'M6']) conns.push(await s.join(n));
     for (let i = 1; i <= 5; i++) {
       s.send(conns[0], { t: 'partyInvite', target: `M${i}` });
       s.send(conns[i], { t: 'partyRespond', from: 'Lead', accept: true });
@@ -308,9 +317,9 @@ describe('GameServer: party', () => {
 });
 
 describe('GameServer: second map', () => {
-  it('walking into the field portal leads to the Frostwhisper Peaks and back, arriving at the portal', () => {
+  it('walking into the field portal leads to the Frostwhisper Peaks and back, arriving at the portal', async () => {
     const s = setup();
-    const c = s.join('Explorer');
+    const c = await s.join('Explorer');
     const dbg = s.server.debugPlayer('Explorer')!;
     dbg.setPos(29.5, 8.5);
     s.send(c, { t: 'move', x: 31.5, z: 8.5 });
@@ -329,10 +338,10 @@ describe('GameServer: second map', () => {
 });
 
 describe('GameServer: achievements', () => {
-  it('unlocks FIRST_BLOOD once, persists it, and syncs job change / party achievements', () => {
+  it('unlocks FIRST_BLOOD once, persists it, and syncs job change / party achievements', async () => {
     const s = setup();
-    const a = s.join('Achiever');
-    const b = s.join('Friend');
+    const a = await s.join('Achiever');
+    const b = await s.join('Friend');
     const dbg = s.server.debugPlayer('Achiever')!;
     dbg.ch.data.stats.str = 99;
     dbg.ch.data.stats.dex = 99;
@@ -351,7 +360,7 @@ describe('GameServer: achievements', () => {
     s.send(b, { t: 'partyRespond', from: 'Achiever', accept: true });
     expect(b.of('achievement').some((x) => x.id === 'PARTY_UP')).toBe(true);
     s.server.disconnect(a);
-    const a2 = s.join('Achiever');
+    const a2 = await s.join('Achiever');
     expect(a2.last('self')!.data.achievements).toContain('FIRST_BLOOD');
     s.advance(0.5);
     expect(a2.of('achievement')).toHaveLength(0);
@@ -359,8 +368,8 @@ describe('GameServer: achievements', () => {
 });
 
 describe('GameServer: skills', () => {
-  function swordsman(s: ReturnType<typeof setup>, name: string) {
-    const c = s.join(name);
+  async function swordsman(s: ReturnType<typeof setup>, name: string) {
+    const c = await s.join(name);
     const d = s.server.debugPlayer(name)!;
     d.ch.progression.jobLevel = 10;
     d.ch.changeJob('swordsman');
@@ -368,9 +377,9 @@ describe('GameServer: skills', () => {
     return { c, d };
   }
 
-  it('learn via message, cast with SP and cooldown, deals damage', () => {
+  it('learn via message, cast with SP and cooldown, deals damage', async () => {
     const s = setup();
-    const { c, d } = swordsman(s, 'Basher');
+    const { c, d } = await swordsman(s, 'Basher');
     for (let i = 0; i < 5; i++) s.send(c, { t: 'learnSkill', skill: 'bash' });
     expect(d.ch.skillLevel('bash')).toBe(5);
     const wolf = s.server.debugMonsters().find((m) => m.def === 'grey_wolf')!;
@@ -388,9 +397,9 @@ describe('GameServer: skills', () => {
     expect(d.ch.data.sp).toBe(spAfter);
   });
 
-  it('area skills hit every monster in range; unlearned skills are refused', () => {
+  it('area skills hit every monster in range; unlearned skills are refused', async () => {
     const s = setup();
-    const { c, d } = swordsman(s, 'Boomer');
+    const { c, d } = await swordsman(s, 'Boomer');
     s.send(c, { t: 'skill', skill: 'magnum_break' });
     expect(c.last('log')?.msg).toContain('尚未學會');
     d.ch.data.skills = { bash: 5, magnum_break: 10 };
@@ -406,9 +415,9 @@ describe('GameServer: skills', () => {
     expect(hits.size).toBe(near);
   });
 
-  it('gold-costing skills need gold; SP shortage is reported', () => {
+  it('gold-costing skills need gold; SP shortage is reported', async () => {
     const s = setup();
-    const c = s.join('Moneybags');
+    const c = await s.join('Moneybags');
     const d = s.server.debugPlayer('Moneybags')!;
     d.ch.progression.jobLevel = 10;
     d.ch.changeJob('merchant');
@@ -427,9 +436,9 @@ describe('GameServer: skills', () => {
     expect(c.of('log').some((l) => l.msg.includes('SP 不足'))).toBe(true);
   });
 
-  it('second job change through the server grants the achievement', () => {
+  it('second job change through the server grants the achievement', async () => {
     const s = setup();
-    const { c, d } = swordsman(s, 'Veteran');
+    const { c, d } = await swordsman(s, 'Veteran');
     d.ch.progression.jobLevel = 40;
     s.send(c, { t: 'changeJob', job: 'wizard' });
     expect(d.ch.data.classId).toBe('swordsman');
@@ -437,5 +446,51 @@ describe('GameServer: skills', () => {
     expect(d.ch.data.classId).toBe('knight');
     s.advance(0.1);
     expect(c.of('achievement').some((a) => a.id === 'SECOND_JOB')).toBe(true);
+  });
+});
+
+describe('GameServer: Steam login & audit', () => {
+  const steam = { verifySteamTicket: async (t: string) => (t === 'goodticket00000000' ? { steamId: '765' } : { error: '票證無效' }) };
+
+  it('creates an account bound to the SteamID, and logs back in by SteamID without a password', async () => {
+    const s = setup(true, steam);
+    const c = await s.join('SteamGuy', undefined, 'goodticket00000000');
+    expect(c.last('welcome')?.name).toBe('SteamGuy');
+    expect(s.storage.accounts.get('SteamGuy')?.steamId).toBe('765');
+    s.server.disconnect(c);
+    await flush();
+    // 下次登入：名稱欄位不重要，以 SteamID 找到原本的角色
+    const c2 = await s.join('Whatever', undefined, 'goodticket00000000');
+    expect(c2.last('welcome')?.name).toBe('SteamGuy');
+    // 用密碼登入 Steam 帳號會被拒絕
+    s.server.disconnect(c2);
+    await flush();
+    expect((await s.join('SteamGuy', 'hunter22')).last('loginFailed')?.reason).toContain('Steam');
+  });
+
+  it('rejects bad tickets and names already taken by another account', async () => {
+    const s = setup(true, steam);
+    expect((await s.join('Someone', undefined, 'badticket00000000')).last('loginFailed')?.reason).toContain('Steam 驗證失敗');
+    await s.join('Taken', 'pass1234');
+    const c = await s.join('Taken', undefined, 'goodticket00000000');
+    expect(c.last('loginFailed')?.reason).toContain('已被使用');
+  });
+
+  it('writes audit records for trades and logins', async () => {
+    const s = setup();
+    const a = await s.join('Auditor');
+    const b = await s.join('Auditee');
+    s.server.debugPlayer('Auditee')!.setPos(s.server.debugPlayer('Auditor')!.x + 1, s.server.debugPlayer('Auditor')!.z);
+    s.send(a, { t: 'tradeRequest', target: 'Auditee' });
+    s.send(b, { t: 'tradeRespond', from: 'Auditor', accept: true });
+    s.send(b, { t: 'tradeGold', gold: 50 });
+    s.send(a, { t: 'tradeLock' });
+    s.send(b, { t: 'tradeLock' });
+    s.send(a, { t: 'tradeConfirm' });
+    s.send(b, { t: 'tradeConfirm' });
+    await flush();
+    const kinds = s.storage.audits.map((x) => x.kind);
+    expect(kinds).toContain('login');
+    expect(kinds).toContain('trade');
   });
 });
