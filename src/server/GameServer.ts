@@ -5,6 +5,7 @@
  * 所有會影響經濟的計算（戰鬥、掉寶、採集、強化、製作、交易、交易所）都只在這裡發生。
  */
 import { Character, newCharacter, type CharacterData } from '../core/character';
+import { migrateAccount, migrateWorld, SAVE_VERSION } from './migrations';
 import { defReduction, hitChance, resolveAttack } from '../core/combat';
 import { rollDrops } from '../core/drops';
 import { enchantSuccessRate, ENCHANT_RULES, tryEnchant, type EnchantKind } from '../core/enchant';
@@ -36,6 +37,8 @@ export interface Conn {
 }
 
 export interface AccountRecord {
+  /** 存檔版本（見 migrations.ts）；舊檔沒有這個欄位 = 0 */
+  version?: number;
   name: string;
   passwordHash?: string;
   /** 以 Steam 登入的帳號 */
@@ -218,7 +221,9 @@ export class GameServer {
   constructor(private readonly opts: ServerOptions) {
     this.rng = opts.rng ?? mathRng;
     this.now = opts.now ?? (() => Date.now());
-    const world = opts.world;
+    const migrated = opts.world ? migrateWorld(opts.world) : undefined;
+    if (migrated?.fixes.length) console.warn('[migrate] world', migrated.fixes);
+    const world = migrated?.rec;
     this.uids = new UidGen(opts.uidPrefix ?? 'i', world?.uidCounter ?? 0);
     this.market = new Market(ITEM_DB);
     if (world) {
@@ -347,7 +352,9 @@ export class GameServer {
     return created;
   }
 
-  private enterWorld(conn: Conn, rec: AccountRecord): void {
+  private enterWorld(conn: Conn, loaded: AccountRecord): void {
+    const { rec, report } = migrateAccount(loaded);
+    if (report.fixes.length || report.from !== report.to) this.audit('save_migrated', rec.name, report);
     const name = rec.name;
     const ch = new Character(ITEM_DB, this.uids, rec.character);
     const p: PlayerEnt = {
@@ -384,13 +391,14 @@ export class GameServer {
     ch.equip(ch.inventory.items.find((i) => i.defId === 'novice_knife')!.uid);
     ch.equip(ch.inventory.items.find((i) => i.defId === 'cotton_shirt')!.uid);
     const now = this.now();
-    return { name, passwordHash, character: ch.serialize(), homestead: initialHomestead(), pity: [], createdAt: now, lastLogin: now };
+    return { version: SAVE_VERSION, name, passwordHash, character: ch.serialize(), homestead: initialHomestead(), pity: [], createdAt: now, lastLogin: now };
   }
 
   // ============================================================ 存檔
 
   private saveAccount(p: PlayerEnt): Promise<void> {
     const rec: AccountRecord = {
+      version: SAVE_VERSION,
       name: p.name,
       passwordHash: p.passwordHash,
       steamId: p.steamId,

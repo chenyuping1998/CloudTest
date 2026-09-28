@@ -107,6 +107,18 @@ cd deploy && docker compose up -d --build game
 - 網頁版用戶端在每次啟動時同步到 Caddy，不需要另外處理。
 - 用戶端與伺服器的通訊協定版本不同時，登入會被拒絕並提示更新（`PROTOCOL_VERSION`）。
 
+### 存檔版本與遷移
+
+每筆存檔都有 `version`。玩家登入時，伺服器依 `src/server/migrations.ts` 的 `MIGRATIONS` 把舊存檔升到最新版本，
+並做安全檢查：已刪除的物品 / 卡片 / 技能 / 職業會被移除或替換（技能點數退還），放錯部位的裝備放回背包。
+有任何修正都會寫入稽核日誌（`kind = 'save_migrated'`），客服可以依紀錄補償。
+
+改資料時的規則：
+
+- **刪除或改名物品**：在 `ITEM_RENAMES` 登記舊 id → 新 id，玩家的東西才不會消失
+- **新增存檔欄位**：在 `MIGRATIONS` 最後加一筆並把 `SAVE_VERSION` +1；已上線的遷移不可修改
+- `tests/migrations.test.ts` 會用「最舊的存檔」驗證整條遷移鏈
+
 ## 6. 備份與還原
 
 ```bash
