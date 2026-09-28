@@ -692,3 +692,20 @@ export function cloudMesh(seed: number): THREE.Mesh {
   const mesh = new THREE.Mesh(geo.build(), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, vertexColors: true }));
   return mesh;
 }
+
+/** Minecraft 式頭像：把角色頭部正面的 8×8 像素放大，用於狀態列 */
+export function facePortrait(cls: ClassId, size = 64): string {
+  const look = CLASS_LOOKS[cls];
+  const c = document.createElement('canvas');
+  c.width = c.height = 8;
+  const pc = new PixelCanvas(c.getContext('2d')!, 8, 8, 42);
+  pc.fill(look.skin, 6);
+  headFaces(look)?.front?.(pc);
+  if (look.hat && look.hat !== 'none' && look.hat !== 'crown') pc.rect(0, 0, 8, 2, look.hatColor ?? look.hair);
+  const out = document.createElement('canvas');
+  out.width = out.height = size;
+  const g = out.getContext('2d')!;
+  g.imageSmoothingEnabled = false;
+  g.drawImage(c, 0, 0, size, size);
+  return out.toDataURL();
+}

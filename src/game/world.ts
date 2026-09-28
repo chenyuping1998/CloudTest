@@ -1115,6 +1115,39 @@ export class World {
     return out;
   }
 
+  /** 小地圖用：地形每格的代表色（換地圖時才重算） */
+  minimapBase(): { size: number; colors: string[]; zone: ZoneId } {
+    const TILE_COLOR: Partial<Record<TileName, string>> = {
+      grass_top: '#5f9a3a', path: '#a88a58', cobble: '#8a8a8a', sand: '#d8cb96', gravel: '#857f7a', stone: '#7d7d7d',
+      darkstone: '#3a2f4a', stone_brick: '#4a4a4a', dirt: '#7a5234', hay: '#c8a440', leaves: '#2f6a20',
+    };
+    return {
+      size: this.terrain.size,
+      zone: this.zone,
+      colors: this.terrain.cols.map((c) => (c.water ? '#3a6fd8' : c.blocked && c.top === 'grass_top' ? '#2f6a20' : TILE_COLOR[c.top] ?? '#5f9a3a')),
+    };
+  }
+
+  /** 小地圖用：動態標記（世界座標） */
+  minimapMarkers(): { x: number; z: number; kind: 'player' | 'monster' | 'mvp' | 'npc' | 'portal' | 'station' | 'node' }[] {
+    const out: ReturnType<World['minimapMarkers']> = [];
+    for (const m of this.monsters) if (!m.dead) out.push({ x: m.pos.x, z: m.pos.z, kind: m.def.mvp ? 'mvp' : 'monster' });
+    for (const n of this.npcs) out.push({ x: n.pos.x, z: n.pos.z, kind: 'npc' });
+    for (const p of this.portals) out.push({ x: p.pos.x, z: p.pos.z, kind: 'portal' });
+    for (const s of this.stations) out.push({ x: s.pos.x, z: s.pos.z, kind: 'station' });
+    for (const n of this.nodes) if (n.state.depletedAt === undefined) out.push({ x: n.pos.x, z: n.pos.z, kind: 'node' });
+    out.push({ x: this.player.pos.x, z: this.player.pos.z, kind: 'player' });
+    return out;
+  }
+
+  get playerYaw(): number {
+    return this.player.rig.yaw.rotation.y;
+  }
+
+  get cameraYaw(): number {
+    return this.camYaw;
+  }
+
   playerScreenPos(): { x: number; y: number } {
     return this.toScreen(this.player.pos.clone().setY(this.player.pos.y + 2));
   }

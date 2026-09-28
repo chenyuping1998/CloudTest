@@ -11,6 +11,8 @@ import {
 } from '../data';
 import { referencePrice } from './marketSim';
 import { itemIcon } from './sprites';
+import { pixelIcon } from './pixelIcons';
+import { facePortrait } from './voxel/models';
 import type { GameState } from './state';
 import { ask, bar, fmt, h, Panel } from './ui';
 import type { NpcId, World } from './world';
@@ -29,6 +31,10 @@ export class Hud {
   private hotbar: HTMLDivElement;
   private tooltip: HTMLDivElement;
   private labelPool: HTMLDivElement[] = [];
+  private minimap: HTMLCanvasElement;
+  private minimapZone: HTMLDivElement;
+  private minimapBase?: { key: string; canvas: HTMLCanvasElement; size: number };
+  private nextMinimap = 0;
 
   private inv: Panel;
   private stats: Panel;
@@ -58,23 +64,30 @@ export class Hud {
   ) {
     this.labelLayer = h('div', { class: 'label-layer' });
     this.floatLayer = h('div', { class: 'float-layer' });
-    this.status = h('div', { class: 'hud-status' });
+    this.status = h('div', { class: 'hud-status frame' });
     this.logEl = h('div', { class: 'hud-log' });
     this.announceEl = h('div', { class: 'hud-announce' });
     this.hotbar = h('div', { class: 'hud-hotbar' });
     this.tooltip = h('div', { class: 'tooltip', style: 'display:none' });
+    const menuBtn = (icon: string, label: string, key: string, panel: () => Panel) =>
+      h('button', { class: 'icon-btn', title: `${label} (${key})`, onclick: () => this.toggle(panel()) },
+        h('img', { src: pixelIcon(icon, 3) }), h('span', { class: 'icon-btn-label' }, label), h('span', { class: 'icon-btn-key' }, key));
     const menu = h(
       'div',
       { class: 'hud-menu' },
-      h('button', { class: 'btn', onclick: () => this.toggle(this.inv) }, '背包 (I)'),
-      h('button', { class: 'btn', onclick: () => this.toggle(this.stats) }, '角色 (S)'),
-      h('button', { class: 'btn', onclick: () => this.toggle(this.home) }, '家園 (H)'),
-      h('button', { class: 'btn', onclick: () => this.toggle(this.drops) }, '掉寶表 (D)'),
-      h('button', { class: 'btn', onclick: () => this.toggle(this.help) }, '說明 (F1)'),
+      menuBtn('bag', '背包', 'I', () => this.inv),
+      menuBtn('char', '角色', 'S', () => this.stats),
+      menuBtn('home', '家園', 'H', () => this.home),
+      menuBtn('book', '掉寶表', 'D', () => this.drops),
+      menuBtn('help', '說明', 'F1', () => this.help),
     );
+    this.minimap = h('canvas', { class: 'minimap-canvas', width: 180, height: 180 });
+    this.minimapZone = h('div', { class: 'minimap-zone' });
+    const minimapBox = h('div', { class: 'hud-minimap frame' }, this.minimapZone, this.minimap);
+    const logBox = h('div', { class: 'hud-logbox frame' }, h('div', { class: 'logbox-title' }, '訊息'), this.logEl);
     root.addEventListener('mousedown', () => (this.pointerDown = true));
     window.addEventListener('mouseup', () => (this.pointerDown = false));
-    root.append(this.labelLayer, this.floatLayer, this.status, menu, this.logEl, this.announceEl, this.hotbar, this.tooltip);
+    root.append(this.labelLayer, this.floatLayer, this.status, menu, minimapBox, logBox, this.announceEl, this.hotbar, this.tooltip);
 
     this.inv = new Panel(root, '背包', { x: window.innerWidth - 400, y: 70, w: 370 }, () => (this.pending = undefined));
     this.stats = new Panel(root, '角色資訊', { x: 20, y: 200, w: 360 });
@@ -187,6 +200,11 @@ export class Hud {
       const html = `<span style="color:${l.color}">${escapeHtml(l.text)}</span>${hp}`;
       if (el.innerHTML !== html) el.innerHTML = html;
     });
+    const now = performance.now();
+    if (now >= this.nextMinimap) {
+      this.nextMinimap = now + 150;
+      this.drawMinimap();
+    }
     if (this.dirty && !this.pointerDown) {
       this.dirty = false;
       this.render();
@@ -225,15 +243,89 @@ export class Hud {
       ? h('div', { class: 'status-hint', onclick: () => this.toggle(this.stats) }, ch.canChangeJob() ? '★ 可以轉職！' : `★ 剩餘素質點 ${p.statPoints}`)
       : '';
     this.status.replaceChildren(
-      h('div', { class: 'status-name' }, `${ch.name}`, h('span', { class: 'status-class' }, ` ${ch.classDef.name}`)),
-      h('div', { class: 'status-row' }, `Base Lv ${p.baseLevel}`, h('span', {}, `Job Lv ${p.jobLevel}`)),
+      h('div', { class: 'status-head' },
+        h('div', { class: 'portrait' }, h('img', { src: facePortrait(ch.data.classId, 64) })),
+        h('div', { class: 'status-id' },
+          h('div', { class: 'status-name' }, ch.name),
+          h('div', { class: 'status-class' }, ch.classDef.name),
+          h('div', { class: 'status-levels' }, h('span', { class: 'lv-badge' }, `Lv ${p.baseLevel}`), h('span', { class: 'lv-badge job' }, `Job ${p.jobLevel}`)),
+        ),
+      ),
       bar(ch.data.hp / d.maxHp, 'hp', `HP ${fmt(ch.data.hp)} / ${fmt(d.maxHp)}`),
       bar(ch.data.sp / d.maxSp, 'sp', `SP ${fmt(ch.data.sp)} / ${fmt(d.maxSp)}`),
-      bar(Number.isFinite(bNeed) ? p.baseExp / bNeed : 1, 'exp', `Base ${Number.isFinite(bNeed) ? ((p.baseExp / bNeed) * 100).toFixed(1) : 'MAX'}%`),
-      bar(Number.isFinite(jNeed) ? p.jobExp / jNeed : 1, 'jexp', `Job ${Number.isFinite(jNeed) ? ((p.jobExp / jNeed) * 100).toFixed(1) : 'MAX'}%`),
-      h('div', { class: 'status-row' }, `💰 ${fmt(ch.data.gold)} G`, h('span', { style: wt > d.maxWeight ? 'color:#f66' : '' }, `負重 ${fmt(wt)}/${fmt(d.maxWeight)}`)),
+      bar(Number.isFinite(bNeed) ? p.baseExp / bNeed : 1, 'exp thin', `Base EXP ${Number.isFinite(bNeed) ? ((p.baseExp / bNeed) * 100).toFixed(1) : 'MAX'}%`),
+      bar(Number.isFinite(jNeed) ? p.jobExp / jNeed : 1, 'jexp thin', `Job EXP ${Number.isFinite(jNeed) ? ((p.jobExp / jNeed) * 100).toFixed(1) : 'MAX'}%`),
+      h('div', { class: 'status-row' },
+        h('span', { class: 'stat-chip gold' }, h('img', { src: pixelIcon('coin', 2) }), `${fmt(ch.data.gold)}`),
+        h('span', { class: `stat-chip${wt > d.maxWeight ? ' warn' : ''}` }, h('img', { src: pixelIcon('weight', 2) }), `${fmt(wt)} / ${fmt(d.maxWeight)}`)),
       hint,
     );
+  }
+
+  private drawMinimap(): void {
+    const w = this.world();
+    const base = w.minimapBase();
+    const key = `${base.zone}:${base.size}`;
+    if (this.minimapBase?.key !== key) {
+      const c = document.createElement('canvas');
+      c.width = c.height = base.size;
+      const g = c.getContext('2d')!;
+      base.colors.forEach((col, i) => {
+        g.fillStyle = col;
+        g.fillRect(i % base.size, Math.floor(i / base.size), 1, 1);
+      });
+      this.minimapBase = { key, canvas: c, size: base.size };
+      this.minimapZone.textContent = base.zone === 'field' ? '晨曦平原' : `${this.state.player.name} 的家園`;
+    }
+    const g = this.minimap.getContext('2d')!;
+    const W = this.minimap.width;
+    const scale = W / 44; // 顯示玩家周圍約 44 格
+    const markers = w.minimapMarkers();
+    const me = markers[markers.length - 1];
+    const half = this.minimapBase.size / 2;
+    g.save();
+    g.fillStyle = '#0b0d18';
+    g.fillRect(0, 0, W, W);
+    g.translate(W / 2, W / 2);
+    // 讓相機的前方朝上
+    g.rotate(w.cameraYaw);
+    g.scale(scale, scale);
+    g.translate(-me.x, -me.z);
+    g.imageSmoothingEnabled = false;
+    g.drawImage(this.minimapBase.canvas, -half, -half);
+    const dot = (x: number, z: number, r: number, fill: string, stroke = '#000') => {
+      g.beginPath();
+      g.arc(x, z, r / scale, 0, Math.PI * 2);
+      g.fillStyle = fill;
+      g.fill();
+      g.lineWidth = 1 / scale;
+      g.strokeStyle = stroke;
+      g.stroke();
+    };
+    for (const m of markers) {
+      if (m.kind === 'monster') dot(m.x, m.z, 2.5, '#ff5a5a');
+      else if (m.kind === 'mvp') dot(m.x, m.z, 5, '#ff9f1a', '#fff');
+      else if (m.kind === 'npc') dot(m.x, m.z, 3.5, '#6ad0ff');
+      else if (m.kind === 'portal') dot(m.x, m.z, 4.5, '#b070ff', '#fff');
+      else if (m.kind === 'station') dot(m.x, m.z, 3, '#ffd24a');
+      else if (m.kind === 'node') dot(m.x, m.z, 2.5, '#9fffb0');
+    }
+    // 玩家箭頭
+    g.translate(me.x, me.z);
+    g.rotate(-w.playerYaw);
+    g.scale(1 / scale, 1 / scale);
+    g.beginPath();
+    g.moveTo(0, 7);
+    g.lineTo(5, -5);
+    g.lineTo(0, -2);
+    g.lineTo(-5, -5);
+    g.closePath();
+    g.fillStyle = '#ffffff';
+    g.fill();
+    g.strokeStyle = '#000';
+    g.lineWidth = 1.5;
+    g.stroke();
+    g.restore();
   }
 
   private renderHotbar(): void {
