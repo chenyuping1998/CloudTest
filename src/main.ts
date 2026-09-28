@@ -4,10 +4,12 @@ import * as THREE from 'three';
 import { getDef } from './core/items';
 import { ITEM_DB } from './data';
 import { Hud } from './game/hud';
-import { MarketSim } from './game/marketSim';
-import { GameState } from './game/state';
 import { h } from './game/ui';
 import { World } from './game/world';
+import { ClientState } from './client/ClientState';
+import { LocalConnection, WsConnection, type Connection } from './net/connection';
+import { PROTOCOL_VERSION, type ServerMsg } from './net/protocol';
+import { BrowserStorage } from './server/browserStorage';
 
 const gameEl = document.getElementById('game')!;
 const uiEl = document.getElementById('ui')!;
@@ -48,52 +50,191 @@ function titleLandscape(): HTMLCanvasElement {
   return c;
 }
 
-function titleScreen(): void {
-  const existing = GameState.load();
-  const nameIn = h('input', { class: 'input', placeholder: '輸入角色名稱', maxlength: 12, value: '冒險者' });
-  const start = (state: GameState) => {
-    screen.remove();
-    startGame(state);
+const DEFAULT_SERVER = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname || 'localhost'}:8787`;
+
+function titleScreen(error?: string): void {
+  uiEl.replaceChildren();
+  const last = BrowserStorage.lastPlayer();
+  let mode: 'offline' | 'online' = (localStorage.getItem('roe:mode') as 'online' | null) ?? 'offline';
+  const nameIn = h('input', { class: 'input', placeholder: '角色名稱（2~12 字）', maxlength: 12, value: localStorage.getItem('roe:name') ?? last?.name ?? '冒險者' });
+  const pwIn = h('input', { class: 'input', type: 'password', placeholder: '密碼（至少 4 字）', maxlength: 64 });
+  const serverIn = h('input', { class: 'input wide', value: localStorage.getItem('roe:server') ?? DEFAULT_SERVER });
+  const errorEl = h('div', { class: 'title-error' }, error ?? '');
+  const body = h('div', { class: 'title-form' });
+  const go = () => {
+    const name = nameIn.value.trim();
+    try {
+      localStorage.setItem('roe:mode', mode);
+      localStorage.setItem('roe:name', name);
+      if (mode === 'online') localStorage.setItem('roe:server', serverIn.value.trim());
+    } catch {
+      /* ignore */
+    }
+    errorEl.textContent = '連線中…';
+    const conn = mode === 'online' ? new WsConnection(serverIn.value.trim()) : new LocalConnection();
+    startGame(conn, name, mode === 'online' ? pwIn.value : undefined, (reason) => (errorEl.textContent = reason));
   };
+  const renderForm = () => {
+    tabOff.className = `tab${mode === 'offline' ? ' active' : ''}`;
+    tabOn.className = `tab${mode === 'online' ? ' active' : ''}`;
+    body.replaceChildren(
+      mode === 'online' ? h('label', { class: 'field' }, h('span', {}, '伺服器'), serverIn) : '',
+      h('label', { class: 'field' }, h('span', {}, '角色'), nameIn),
+      mode === 'online' ? h('label', { class: 'field' }, h('span', {}, '密碼'), pwIn) : '',
+      h('div', { class: 'muted small' }, mode === 'online'
+        ? '第一次登入會用這組名稱與密碼建立帳號。'
+        : last ? `上次遊玩：${last.name}（Lv ${last.level}）。輸入同名即可繼續，輸入新名字會建立新角色。` : '單機模式：資料存在這台電腦上。'),
+      h('button', { class: 'btn big btn-primary', onclick: go }, mode === 'online' ? '連線進入' : '開始冒險'),
+    );
+  };
+  const tabOff = h('button', { class: 'tab', onclick: () => { mode = 'offline'; renderForm(); } }, '單機遊玩');
+  const tabOn = h('button', { class: 'tab', onclick: () => { mode = 'online'; renderForm(); } }, '連線遊玩');
+  for (const inp of [nameIn, pwIn, serverIn]) inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  renderForm();
   const screen = h('div', { class: 'title-screen' },
     titleLandscape(),
     h('div', { class: 'title-box' },
       h('h1', {}, '餘燼王國'),
       h('div', { class: 'subtitle' }, '— REALM OF EMBERS —'),
       h('div', { class: 'title-panel frame' },
-      existing ? h('button', { class: 'btn btn-primary big', onclick: () => start(existing) }, `繼續遊戲（${existing.player.name} Lv ${existing.player.progression.baseLevel}）`) : undefined,
-      h('div', { class: 'new-game' }, nameIn,
-        h('button', { class: `btn big${existing ? '' : ' btn-primary'}`, onclick: () => {
-          const name = nameIn.value.trim() || '冒險者';
-          if (existing) GameState.wipe();
-          start(GameState.newGame(name));
-        } }, existing ? '開新遊戲（覆蓋存檔）' : '開始冒險')),
-      h('div', { class: 'muted small' }, '左鍵移動 / 攻擊 · 右鍵拖曳旋轉視角 · 滾輪縮放 · F1 說明'),
+        h('div', { class: 'tabs' }, tabOff, tabOn),
+        body,
+        errorEl,
+        h('div', { class: 'muted small' }, '左鍵移動 / 攻擊 · 右鍵拖曳旋轉視角 · 滾輪縮放 · Enter 聊天 · F1 說明'),
       ),
     ),
   );
   uiEl.appendChild(screen);
 }
 
-function startGame(state: GameState): void {
-  let world!: World;
-  const hud = new Hud(uiEl, state, () => world);
-  world = new World(gameEl, state, {
-    log: (m, c) => hud.log(m, c),
-    announce: (m, c) => hud.announce(m, c),
-    floatText: (p, t, c, big) => {
-      const s = world.toScreen(p);
-      if (s.visible) hud.floatText(s.x, s.y, t, c, big);
-    },
-    openStation: (id) => hud.openStation(id),
-    openNpc: (id) => hud.openNpc(id),
-    zoneChanged: () => hud.closeZonePanels(),
-    changed: () => hud.markDirty(),
-  });
-  const sim = new MarketSim(state);
-  hud.log(`歡迎來到餘燼王國，${state.player.name}！按 F1 查看說明。`, '#ffe680');
+function startGame(conn: Connection, name: string, password: string | undefined, onError: (reason: string) => void): void {
+  const cs = new ClientState(conn);
+  let world: World | undefined;
+  let hud: Hud | undefined;
+  let started = false;
+  let failed = false;
 
-  // ---- 輸入 ----
+  const begin = () => {
+    started = true;
+    uiEl.replaceChildren();
+    gameEl.replaceChildren();
+    hud = new Hud(uiEl, cs, () => world!);
+    world = new World(gameEl, cs, {
+      floatText: (p, t, c, big) => {
+        const s = world!.toScreen(p);
+        if (s.visible) hud!.floatText(s.x, s.y, t, c, big);
+      },
+      playerMenu: (n, x, y) => hud!.playerMenu(n, x, y),
+    });
+    hud.log(`歡迎來到餘燼王國，${cs.name}！按 F1 查看說明${cs.online ? '，按 Enter 聊天' : ''}。`, '#ffe680');
+    bindInput(cs, world, hud);
+    const clock = new THREE.Clock();
+    const loop = () => {
+      if (!world) return;
+      const dt = Math.min(clock.getDelta(), 0.1);
+      world.update(dt);
+      world.render();
+      hud!.frame();
+      requestAnimationFrame(loop);
+    };
+    loop();
+    (window as unknown as { game: unknown }).game = { cs, world, hud, conn };
+  };
+
+  // 在收到 welcome 之前先暫存訊息（zone / self 會緊接著 welcome 送來）
+  const pending: ServerMsg[] = [];
+  const handle = (msg: ServerMsg) => {
+    if (!world || !hud) {
+      pending.push(msg);
+      return;
+    }
+    switch (msg.t) {
+      case 'zone':
+        cs.zone = msg.zone;
+        cs.zoneOwner = msg.owner;
+        if (msg.homestead) cs.setHome(msg.homestead);
+        world.apply(msg);
+        hud.closeZonePanels();
+        hud.markDirty();
+        break;
+      case 'snap':
+      case 'fx':
+        world.apply(msg);
+        break;
+      case 'self':
+        cs.setSelf(msg.data);
+        hud.markDirty();
+        break;
+      case 'home':
+        cs.setHome(msg.data);
+        hud.markDirty();
+        break;
+      case 'log':
+        hud.log(msg.msg, msg.color);
+        break;
+      case 'announce':
+        hud.announce(msg.msg, msg.color);
+        break;
+      case 'open':
+        if (msg.kind === 'npc') hud.openNpc(msg.id);
+        else hud.openStation(msg.id);
+        break;
+      case 'market':
+        cs.market = msg.view;
+        hud.markDirty();
+        break;
+      case 'trade':
+        cs.trade = msg.view;
+        hud.markDirty();
+        break;
+      case 'tradeInvite':
+        hud.tradeInvite(msg.from);
+        break;
+      case 'chat':
+        hud.chat(msg.from, msg.text, msg.system);
+        break;
+      case 'players':
+        cs.onlinePlayers = msg.names;
+        hud.markDirty();
+        break;
+      default:
+        break;
+    }
+  };
+
+  conn.onMessage((msg) => {
+    if (msg.t === 'loginFailed') {
+      failed = true;
+      conn.close();
+      onError(msg.reason);
+      return;
+    }
+    if (msg.t === 'welcome') {
+      cs.myId = msg.id;
+      cs.name = msg.name;
+      cs.online = msg.online;
+      begin();
+      for (const m of pending.splice(0)) handle(m);
+      return;
+    }
+    handle(msg);
+  });
+  conn.onClose((reason) => {
+    if (failed) return;
+    if (!started) {
+      onError(reason);
+      return;
+    }
+    world = undefined;
+    const overlay = h('div', { class: 'modal-overlay' }, h('div', { class: 'modal frame' },
+      h('div', {}, `⚠ ${reason}`),
+      h('div', { class: 'modal-actions' }, h('button', { class: 'btn btn-primary', onclick: () => location.reload() }, '回到標題畫面'))));
+    uiEl.appendChild(overlay);
+  });
+  conn.send({ t: 'login', name, password, version: PROTOCOL_VERSION });
+}
+
+function bindInput(cs: ClientState, world: World, hud: Hud): void {
   const canvas = world.renderer.domElement;
   let rightDrag: { x: number } | undefined;
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -109,10 +250,9 @@ function startGame(state: GameState): void {
     }
     const p = world.hover(e.clientX, e.clientY);
     canvas.style.cursor = !p ? 'default' : p.type === 'monster' ? 'crosshair' : 'pointer';
-    if (p?.type === 'item') {
-      const it = p.ref.item;
-      hud.showTooltip(e.clientX, e.clientY, hud.itemTooltip(getDef(ITEM_DB, it.defId), it));
-    } else hud.showTooltip(0, 0, undefined);
+    const it = world.hoveredItem();
+    if (it) hud.showTooltip(e.clientX, e.clientY, hud.itemTooltip(getDef(ITEM_DB, it.defId)));
+    else hud.showTooltip(0, 0, undefined);
   });
   canvas.addEventListener('wheel', (e) => {
     world.zoomCamera(e.deltaY * 0.01);
@@ -125,6 +265,11 @@ function startGame(state: GameState): void {
       hud.closeTopPanel();
       return;
     }
+    if (k === 'enter') {
+      e.preventDefault();
+      hud.focusChat();
+      return;
+    }
     if (k === 'f1') e.preventDefault();
     if (k === 'z') world.pickupNearest();
     else if (k === ' ') {
@@ -134,29 +279,7 @@ function startGame(state: GameState): void {
     else if (k === 'e') world.rotateCamera(-0.3);
     else hud.key(k);
   });
-
-  // ---- 主迴圈 ----
-  const clock = new THREE.Clock();
-  let saveAt = performance.now() + 30_000;
-  const loop = () => {
-    const dt = Math.min(clock.getDelta(), 0.1);
-    world.update(dt);
-    world.render();
-    hud.frame();
-    sim.tick(Date.now(), (msg) => {
-      hud.announce(msg, '#ffd24a');
-      hud.markDirty();
-    });
-    if (performance.now() > saveAt) {
-      saveAt = performance.now() + 30_000;
-      state.save();
-    }
-    requestAnimationFrame(loop);
-  };
-  window.addEventListener('beforeunload', () => state.save());
-  loop();
-  // 方便除錯 / 自動化測試
-  (window as unknown as { game: unknown }).game = { state, world, hud };
+  void cs;
 }
 
 titleScreen();

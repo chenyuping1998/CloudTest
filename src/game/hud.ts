@@ -1,19 +1,19 @@
-import { ENCHANT_RULES, enchantSuccessRate, tryEnchant, type EnchantKind } from '../core/enchant';
-import { craft, craftSuccessRate, type StationId } from '../core/homestead';
-import { createItem, getDef, isTradeable, itemDisplayName } from '../core/items';
+import { ENCHANT_RULES, enchantSuccessRate, type EnchantKind } from '../core/enchant';
+import { craftSuccessRate, type StationId } from '../core/homestead';
+import { getDef, isTradeable, itemDisplayName } from '../core/items';
 import { baseExpToNext, jobExpToNext, lifeSkillExpToNext, statRaiseCost } from '../core/leveling';
 import { listingFee, MARKET_RULES } from '../core/market';
-import { formatPpm, mathRng } from '../core/rng';
+import { formatPpm } from '../core/rng';
 import { RARITY_INFO, STAT_KEYS, STAT_NAMES, type EquipSlot, type ItemDef, type ItemInstance } from '../core/types';
 import {
   CLASSES, HOMESTEAD_UPGRADES, ITEM_DB, JOB_CHOICES, MONSTERS, NODE_DB, NPC_SHOP, POOL_DB, RECIPES, STATION_MAX_LEVEL,
   STATION_NAMES, stationUpgradeCost,
 } from '../data';
-import { referencePrice } from './marketSim';
+import { referencePrice } from '../shared/pricing';
+import type { ClientState } from '../client/ClientState';
 import { itemIcon } from './sprites';
 import { pixelIcon } from './pixelIcons';
 import { facePortrait } from './voxel/models';
-import type { GameState } from './state';
 import { ask, bar, fmt, h, Panel } from './ui';
 import type { NpcId, World } from './world';
 
@@ -44,6 +44,11 @@ export class Hud {
   private market: Panel;
   private help: Panel;
   private drops: Panel;
+  private tradePanel: Panel;
+  private chatInput: HTMLInputElement;
+  private onlineEl: HTMLSpanElement;
+  private tradeAddUid?: string;
+  private tradeGoldDraft = '';
 
   private invFilter: InvFilter = 'all';
   private selectedUid?: string;
@@ -59,7 +64,7 @@ export class Hud {
 
   constructor(
     private readonly root: HTMLElement,
-    private readonly state: GameState,
+    private readonly cs: ClientState,
     private readonly world: () => World,
   ) {
     this.labelLayer = h('div', { class: 'label-layer' });
@@ -84,7 +89,18 @@ export class Hud {
     this.minimap = h('canvas', { class: 'minimap-canvas', width: 180, height: 180 });
     this.minimapZone = h('div', { class: 'minimap-zone' });
     const minimapBox = h('div', { class: 'hud-minimap frame' }, this.minimapZone, this.minimap);
-    const logBox = h('div', { class: 'hud-logbox frame' }, h('div', { class: 'logbox-title' }, '訊息'), this.logEl);
+    this.chatInput = h('input', { class: 'chat-input', maxlength: 120, placeholder: 'Enter 輸入聊天訊息…' });
+    this.chatInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        const text = this.chatInput.value.trim();
+        if (text) this.cs.send({ t: 'chat', text });
+        this.chatInput.value = '';
+        this.chatInput.blur();
+      } else if (e.key === 'Escape') this.chatInput.blur();
+    });
+    this.onlineEl = h('span', { class: 'online-count' });
+    const logBox = h('div', { class: 'hud-logbox frame' }, h('div', { class: 'logbox-title' }, '訊息', this.onlineEl), this.logEl, this.chatInput);
     root.addEventListener('mousedown', () => (this.pointerDown = true));
     window.addEventListener('mouseup', () => (this.pointerDown = false));
     root.append(this.labelLayer, this.floatLayer, this.status, menu, minimapBox, logBox, this.announceEl, this.hotbar, this.tooltip);
@@ -97,12 +113,19 @@ export class Hud {
     this.market = new Panel(root, '交易所', { x: 360, y: 60, w: 560 });
     this.help = new Panel(root, '遊戲說明', { x: 380, y: 60, w: 520 });
     this.drops = new Panel(root, '怪物掉寶表', { x: 380, y: 60, w: 520 });
-    for (const p of [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops]) {
+    this.tradePanel = new Panel(root, '交易', { x: 360, y: 90, w: 560 }, () => {
+      if (this.cs.trade) this.cs.send({ t: 'tradeCancel' });
+    });
+    for (const p of [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.tradePanel]) {
       p.body.addEventListener('click', () => this.markDirty());
     }
   }
 
   // ------------------------------------------------------------ 通用
+
+  private get player() {
+    return this.cs.player!;
+  }
 
   markDirty(): void {
     this.dirty = true;
@@ -212,6 +235,14 @@ export class Hud {
   }
 
   private render(): void {
+    if (!this.cs.player) return;
+    this.onlineEl.textContent = this.cs.online ? `　線上 ${this.cs.onlinePlayers.length} 人` : '　單機模式';
+    if (this.cs.trade) {
+      if (!this.tradePanel.visible) this.tradePanel.show();
+      this.renderTrade();
+    } else if (this.tradePanel.visible) {
+      this.tradePanel.el.style.display = 'none';
+    }
     this.renderStatus();
     this.renderHotbar();
     // 正在輸入的視窗不重繪，避免輸入內容與焦點被清掉
@@ -230,10 +261,91 @@ export class Hud {
     if (this.drops.visible) this.renderDrops();
   }
 
+  // ------------------------------------------------------------ 多人：聊天、交易
+
+  focusChat(): void {
+    this.chatInput.focus();
+  }
+
+  chat(from: string, text: string, system = false): void {
+    const line = h('div', { class: `log-line chat${system ? ' system' : ''}` },
+      system ? '' : h('span', { class: 'chat-name' }, `${from}：`), text);
+    this.logEl.appendChild(line);
+    while (this.logEl.childElementCount > 80) this.logEl.firstElementChild!.remove();
+    this.logEl.scrollTop = this.logEl.scrollHeight;
+  }
+
+  tradeInvite(from: string): void {
+    void ask(this.root, `<b>${escapeHtml(from)}</b> 想與你交易，要接受嗎？`, '接受').then((ok) => this.cs.send({ t: 'tradeRespond', from, accept: ok }));
+  }
+
+  playerMenu(name: string, x: number, y: number): void {
+    this.root.querySelector('.player-menu')?.remove();
+    const menu = h('div', { class: 'player-menu frame', style: `left:${x}px;top:${y}px` },
+      h('div', { class: 'player-menu-name' }, name),
+      h('button', { class: 'btn btn-small', onclick: () => { this.cs.send({ t: 'tradeRequest', target: name }); menu.remove(); } }, '交易'),
+      h('button', { class: 'btn btn-small', onclick: () => { this.chatInput.value = `@${name} `; this.chatInput.focus(); menu.remove(); } }, '聊天'),
+      h('button', { class: 'btn btn-small', onclick: () => menu.remove() }, '取消'),
+    );
+    this.root.appendChild(menu);
+    setTimeout(() => window.addEventListener('mousedown', (e) => { if (!menu.contains(e.target as Node)) menu.remove(); }, { once: true }), 0);
+  }
+
+  private tradeSide(title: string, offer: import('../net/protocol').TradeOfferView, mine: boolean): HTMLElement {
+    const cells = offer.items.map((it) => {
+      const def = getDef(ITEM_DB, it.defId);
+      return this.iconCell(def, it, mine && !offer.locked ? () => this.cs.send({ t: 'tradeItem', uid: it.uid, qty: 0 }) : undefined);
+    });
+    while (cells.length < 10) cells.push(h('div', { class: 'item-cell empty' }));
+    const status = offer.confirmed ? '✔ 已確認' : offer.locked ? '🔒 已鎖定' : '編輯中';
+    return h('div', { class: `trade-side${offer.locked ? ' locked' : ''}` },
+      h('div', { class: 'trade-side-title' }, title, h('span', { class: `trade-status${offer.confirmed ? ' ok' : ''}` }, status)),
+      h('div', { class: 'trade-grid' }, ...cells),
+      h('div', { class: 'trade-gold' }, h('img', { src: pixelIcon('coin', 2) }), fmt(offer.gold), ' G'),
+    );
+  }
+
+  private renderTrade(): void {
+    const t = this.cs.trade!;
+    const ch = this.player;
+    this.tradePanel.setTitle(`與 ${t.partner} 交易`);
+    const offered = new Set(t.mine.items.map((i) => i.uid));
+    const tradeables = ch.inventory.items.filter((i) => isTradeable(getDef(ITEM_DB, i.defId), i) && !offered.has(i.uid));
+    let picker: HTMLElement | undefined;
+    if (!t.mine.locked) {
+      const sel = this.tradeAddUid ? ch.inventory.get(this.tradeAddUid) : undefined;
+      const qtyIn = h('input', { type: 'number', class: 'input', min: 1, max: sel?.qty ?? 1, value: sel?.qty ?? 1 });
+      const goldIn = h('input', { type: 'number', class: 'input', min: 0, value: this.tradeGoldDraft || String(t.mine.gold) });
+      goldIn.addEventListener('input', () => (this.tradeGoldDraft = goldIn.value));
+      picker = h('div', { class: 'trade-picker' },
+        h('div', { class: 'muted' }, '點選背包物品放入交易欄（再點交易欄中的物品可取回）'),
+        h('div', { class: 'item-grid' }, ...tradeables.map((it) => this.iconCell(getDef(ITEM_DB, it.defId), it, () => (this.tradeAddUid = it.uid), it.uid === this.tradeAddUid))),
+        sel ? h('div', { class: 'trade-row' }, h('span', { style: `color:${RARITY_INFO[getDef(ITEM_DB, sel.defId).rarity].color}` }, itemDisplayName(getDef(ITEM_DB, sel.defId), sel)),
+          sel.qty > 1 ? h('label', {}, ' 數量 ', qtyIn) : undefined,
+          h('button', { class: 'btn btn-small', onclick: () => { this.cs.send({ t: 'tradeItem', uid: sel.uid, qty: Math.floor(Number(qtyIn.value) || 1) }); this.tradeAddUid = undefined; } }, '放入')) : undefined,
+        h('div', { class: 'trade-row' }, h('label', {}, '金幣 ', goldIn),
+          h('button', { class: 'btn btn-small', onclick: () => { this.cs.send({ t: 'tradeGold', gold: Math.floor(Number(goldIn.value) || 0) }); this.tradeGoldDraft = ''; } }, '設定')),
+      );
+    }
+    const bothLocked = t.mine.locked && t.theirs.locked;
+    this.tradePanel.set(
+      h('div', { class: 'trade-cols' }, this.tradeSide('你的交易品', t.mine, true), this.tradeSide(`${t.partner} 的交易品`, t.theirs, false)),
+      picker,
+      h('div', { class: 'trade-actions' },
+        h('div', { class: 'muted small' }, '雙方都鎖定後才能確認；任何一方修改內容，鎖定會全部重置（防詐騙）。'),
+        t.mine.locked
+          ? h('button', { class: 'btn', disabled: t.mine.confirmed, onclick: () => this.cs.send({ t: 'tradeUnlock' }) }, '解除鎖定')
+          : h('button', { class: 'btn', onclick: () => this.cs.send({ t: 'tradeLock' }) }, '鎖定'),
+        h('button', { class: 'btn btn-primary', disabled: !bothLocked || t.mine.confirmed, onclick: () => this.cs.send({ t: 'tradeConfirm' }) }, t.mine.confirmed ? '等待對方確認…' : '確認交易'),
+        h('button', { class: 'btn btn-danger', onclick: () => this.cs.send({ t: 'tradeCancel' }) }, '取消'),
+      ),
+    );
+  }
+
   // ------------------------------------------------------------ 狀態列
 
   private renderStatus(): void {
-    const ch = this.state.player;
+    const ch = this.player;
     const p = ch.progression;
     const d = ch.derived();
     const wt = ch.inventory.totalWeight();
@@ -265,7 +377,7 @@ export class Hud {
   private drawMinimap(): void {
     const w = this.world();
     const base = w.minimapBase();
-    const key = `${base.zone}:${base.size}`;
+    const key = `${base.zone}:${this.cs.zoneOwner}:${base.size}:${base.colors.length}:${this.cs.homestead.data.nodes.length}`;
     if (this.minimapBase?.key !== key) {
       const c = document.createElement('canvas');
       c.width = c.height = base.size;
@@ -275,7 +387,7 @@ export class Hud {
         g.fillRect(i % base.size, Math.floor(i / base.size), 1, 1);
       });
       this.minimapBase = { key, canvas: c, size: base.size };
-      this.minimapZone.textContent = base.zone === 'field' ? '晨曦平原' : `${this.state.player.name} 的家園`;
+      this.minimapZone.textContent = base.zone === 'field' ? '晨曦平原' : `${this.cs.zoneOwner} 的家園`;
     }
     const g = this.minimap.getContext('2d')!;
     const W = this.minimap.width;
@@ -305,6 +417,7 @@ export class Hud {
     for (const m of markers) {
       if (m.kind === 'monster') dot(m.x, m.z, 2.5, '#ff5a5a');
       else if (m.kind === 'mvp') dot(m.x, m.z, 5, '#ff9f1a', '#fff');
+      else if (m.kind === 'other') dot(m.x, m.z, 3.5, '#ffffff', '#3a6fd8');
       else if (m.kind === 'npc') dot(m.x, m.z, 3.5, '#6ad0ff');
       else if (m.kind === 'portal') dot(m.x, m.z, 4.5, '#b070ff', '#fff');
       else if (m.kind === 'station') dot(m.x, m.z, 3, '#ffd24a');
@@ -329,7 +442,7 @@ export class Hud {
   }
 
   private renderHotbar(): void {
-    const ch = this.state.player;
+    const ch = this.player;
     this.hotbar.replaceChildren(
       ...HOTBAR.map((id, i) => {
         const def = getDef(ITEM_DB, id);
@@ -341,7 +454,7 @@ export class Hud {
   }
 
   private useHotbar(i: number): void {
-    const it = this.state.player.inventory.items.find((x) => x.defId === HOTBAR[i]);
+    const it = this.player.inventory.items.find((x) => x.defId === HOTBAR[i]);
     if (it) this.useItem(it);
   }
 
@@ -388,7 +501,7 @@ export class Hud {
   }
 
   private renderInventory(): void {
-    const ch = this.state.player;
+    const ch = this.player;
     const inv = ch.inventory;
     const tabs = h('div', { class: 'tabs' },
       ...(['all', 'equip', 'use', 'mat', 'etc'] as InvFilter[]).map((f) =>
@@ -432,16 +545,7 @@ export class Hud {
   }
 
   private useItem(it: ItemInstance): void {
-    const ch = this.state.player;
-    const def = getDef(ITEM_DB, it.defId);
-    if (!def.heal) return;
-    const d = ch.derived();
-    ch.inventory.consume(def.id, 1);
-    if (def.heal.hp) ch.data.hp = Math.min(d.maxHp, ch.data.hp + def.heal.hp);
-    if (def.heal.sp) ch.data.sp = Math.min(d.maxSp, ch.data.sp + def.heal.sp);
-    const pos = this.world().playerScreenPos();
-    this.floatText(pos.x, pos.y, `+${def.heal.hp ?? def.heal.sp}`, def.heal.hp ? '#6f6' : '#6af');
-    this.markDirty();
+    this.cs.send({ t: 'useItem', uid: it.uid });
   }
 
   private equip(it: ItemInstance): void {
@@ -456,22 +560,20 @@ export class Hud {
   }
 
   private doEquip(it: ItemInstance): void {
-    const r = this.state.player.equip(it.uid);
-    if (!r.ok) this.log(r.reason!, '#f99');
-    else this.selectedUid = undefined;
-    this.markDirty();
+    this.cs.send({ t: 'equip', uid: it.uid });
+    this.selectedUid = undefined;
   }
 
   private async discard(it: ItemInstance): Promise<void> {
     const def = getDef(ITEM_DB, it.defId);
     if (!(await ask(this.root, `確定要丟棄 <b>${def.name}</b> x${it.qty} 嗎？（無法復原）`, '丟棄'))) return;
-    this.state.player.inventory.take(it.uid, it.qty);
+    this.cs.send({ t: 'discard', uid: it.uid, qty: it.qty });
     this.selectedUid = undefined;
     this.markDirty();
   }
 
   private async enchant(scrollUid: string, targetUid: string): Promise<void> {
-    const ch = this.state.player;
+    const ch = this.player;
     const scroll = ch.inventory.get(scrollUid);
     const target = ch.inventory.get(targetUid);
     if (!scroll || !target) return;
@@ -491,40 +593,18 @@ export class Hud {
     const ok = await ask(this.root,
       `使用 <b>${sdef.name}</b> 強化 <b>${itemDisplayName(tdef, target)}</b><br>成功率：<b>${Math.round(rate * 100)}%</b>（安定值 +${safe}）<br>${risk}`, '強化');
     if (!ok) return;
-    ch.inventory.consume(sdef.id, 1);
-    const useProtect = hasProtect && target.enchant >= safe;
-    if (useProtect) ch.inventory.consume('scroll_protect', 1);
-    const blessed = sdef.scroll === 'blessedWeaponEnchant' || sdef.scroll === 'blessedArmorEnchant';
-    const res = tryEnchant(kind, target.enchant, { blessed, protectedByScroll: useProtect }, mathRng);
-    const name = tdef.name;
-    if (res.outcome === 'success') {
-      const gain = res.newLevel - target.enchant;
-      target.enchant = res.newLevel;
-      this.announce(`${name} 發出${gain > 1 ? '耀眼的' : '一陣'}${kind === 'weapon' ? '藍色' : '銀色'}光芒！（+${res.newLevel}）`, '#8cf');
-      if (res.newLevel >= safe + 3) this.announce(`【全服公告】${ch.name} 成功將 ${name} 強化到 +${res.newLevel}！`, '#ff9f1a');
-    } else if (res.outcome === 'downgraded') {
-      target.enchant = res.newLevel;
-      this.announce(`強化失敗… 保護卷軸發揮效果，${name} 變為 +${res.newLevel}。`, '#fc8');
-    } else if (res.outcome === 'destroyed') {
-      ch.inventory.take(target.uid, 1);
-      this.announce(`${name} 發出強烈的黑色光芒後蒸發了…`, '#f66');
-      if (this.selectedUid === target.uid) this.selectedUid = undefined;
-    }
-    this.markDirty();
+    this.cs.send({ t: 'enchant', scrollUid, targetUid });
   }
 
   private compound(cardUid: string, equipUid: string): void {
-    const r = this.state.player.compoundCard(cardUid, equipUid);
-    if (r.ok) this.announce('卡片鑲嵌成功！', '#b366ff');
-    else this.log(r.reason!, '#f99');
+    this.cs.send({ t: 'compound', cardUid, equipUid });
     this.selectedUid = undefined;
-    this.markDirty();
   }
 
   // ------------------------------------------------------------ 角色
 
   private renderStats(): void {
-    const ch = this.state.player;
+    const ch = this.player;
     const p = ch.progression;
     const d = ch.derived();
     const jb = ch.jobBonus();
@@ -533,7 +613,7 @@ export class Hud {
       return h('tr', {},
         h('td', {}, STAT_NAMES[k]),
         h('td', { class: 'num' }, String(ch.data.stats[k]), jb[k] ? h('span', { class: 'bonus' }, ` +${jb[k]}`) : undefined, d.totalStats[k] - ch.data.stats[k] - jb[k] ? h('span', { class: 'bonus2' }, ` +${d.totalStats[k] - ch.data.stats[k] - jb[k]}`) : undefined),
-        h('td', {}, h('button', { class: 'btn btn-small', disabled: p.statPoints < cost, onclick: () => { ch.raiseStat(k); this.markDirty(); } }, `+ (${cost})`)),
+        h('td', {}, h('button', { class: 'btn btn-small', disabled: p.statPoints < cost, onclick: () => this.cs.send({ t: 'raiseStat', stat: k }) }, `+ (${cost})`)),
       );
     });
     const derived = [
@@ -546,7 +626,7 @@ export class Hud {
       const cell = def && it ? this.iconCell(def, it) : h('div', { class: 'item-cell empty' });
       return h('div', { class: 'equip-row' }, h('span', { class: 'slot-name' }, SLOT_NAMES[slot]), cell,
         h('span', { style: def ? `color:${RARITY_INFO[def.rarity].color}` : 'color:#777' }, def && it ? itemDisplayName(def, it) : '—'),
-        it ? h('button', { class: 'btn btn-small', onclick: () => { ch.unequip(slot); this.markDirty(); } }, '卸下') : undefined);
+        it ? h('button', { class: 'btn btn-small', onclick: () => this.cs.send({ t: 'unequip', slot }) }, '卸下') : undefined);
     });
     const job = ch.canChangeJob()
       ? h('div', { class: 'job-change' }, h('b', {}, '轉職：'), ...JOB_CHOICES.map((id) =>
@@ -571,24 +651,20 @@ export class Hud {
 
   private async changeJob(id: (typeof JOB_CHOICES)[number]): Promise<void> {
     if (!(await ask(this.root, `確定要轉職為 <b>${CLASSES[id].name}</b> 嗎？<br>${CLASSES[id].desc}<br><span class="muted">轉職後 Job Lv 重設為 1。</span>`, '轉職'))) return;
-    if (this.state.player.changeJob(id)) {
-      this.announce(`恭喜轉職為 ${CLASSES[id].name}！`, '#ffe680');
-      this.world().refreshPlayerLook();
-    }
-    this.markDirty();
+    this.cs.send({ t: 'changeJob', job: id });
   }
 
   // ------------------------------------------------------------ 家園
 
   private need(itemId: string, qty: number): HTMLElement {
-    const have = this.state.player.inventory.count(itemId);
+    const have = this.player.inventory.count(itemId);
     const def = getDef(ITEM_DB, itemId);
     return h('span', { class: `need ${have >= qty ? 'ok' : 'lack'}` }, h('img', { src: itemIcon(def) }), `${def.name} ${have}/${qty}`);
   }
 
   private renderHome(): void {
-    const hs = this.state.homestead;
-    const ch = this.state.player;
+    const hs = this.cs.homestead;
+    const ch = this.player;
     const next = HOMESTEAD_UPGRADES.find((u) => u.toLevel === hs.data.level + 1);
     const counts = new Map<string, number>();
     for (const n of hs.data.nodes) counts.set(n.defId, (counts.get(n.defId) ?? 0) + 1);
@@ -604,14 +680,7 @@ export class Hud {
       next ? h('div', {},
         h('div', { class: 'needs' }, h('span', { class: `need ${ch.data.gold >= next.gold ? 'ok' : 'lack'}` }, `💰 ${fmt(next.gold)} G`), ...next.materials.map((m) => this.need(m.itemId, m.qty))),
         h('div', { class: 'muted' }, `解鎖：${[...new Set(next.unlockNodes)].map((id) => NODE_DB.get(id)!.name).join('、')}`),
-        h('button', { class: 'btn btn-primary', onclick: () => {
-          const r = hs.upgrade(ch, next, NODE_DB);
-          if (r.ok) {
-            this.announce(`家園升級到 Lv ${hs.data.level}！`, '#9fffb0');
-            if (this.world().zone === 'homestead') this.world().buildNodes();
-          } else this.log(r.reason!, '#f99');
-          this.markDirty();
-        } }, '升級家園'),
+        h('button', { class: 'btn btn-primary', onclick: () => this.cs.send({ t: 'upgradeHome' }) }, '升級家園'),
       ) : undefined,
     );
   }
@@ -624,8 +693,8 @@ export class Hud {
 
   private renderStation(): void {
     const id = this.stationId;
-    const hs = this.state.homestead;
-    const ch = this.state.player;
+    const hs = this.cs.homestead;
+    const ch = this.player;
     const lv = hs.buildingLevel(id);
     this.station.setTitle(`${STATION_NAMES[id]}（Lv ${lv}）`);
     const recipes = RECIPES.filter((r) => r.station === id);
@@ -633,23 +702,8 @@ export class Hud {
       const out = getDef(ITEM_DB, r.output.itemId);
       const skill = ch.data.lifeSkills[r.skill];
       const locked = skill.level < r.skillReq || lv < r.stationLevelReq;
-      const canMake = !locked && r.inputs.every((i) => ch.inventory.count(i.itemId) >= i.qty) && ch.data.gold >= r.goldCost;
-      const doCraft = (times: number) => {
-        let ok = 0;
-        let fail = 0;
-        for (let i = 0; i < times; i++) {
-          const res = craft(ch, r, hs, ITEM_DB, this.state.uids, mathRng, Date.now());
-          if (!res.ok) {
-            if (i === 0) this.log(res.reason!, '#f99');
-            break;
-          }
-          if (res.success) ok++;
-          else fail++;
-          if (res.levelUps) this.announce(`${skillName(r.skill)}等級提升！`, '#9fffb0');
-        }
-        if (ok + fail > 0) this.log(`製作 ${out.name}：成功 ${ok} 次${fail ? `、失敗 ${fail} 次（材料已消耗）` : ''}`, fail && !ok ? '#f99' : RARITY_INFO[out.rarity].color);
-        this.markDirty();
-      };
+      const canMake = this.cs.inOwnHome && !locked && r.inputs.every((i) => ch.inventory.count(i.itemId) >= i.qty) && ch.data.gold >= r.goldCost;
+      const doCraft = (times: number) => this.cs.send({ t: 'craft', recipe: r.id, times });
       return h('div', { class: `recipe${locked ? ' locked' : ''}` },
         this.iconCell(out, undefined),
         h('div', { class: 'recipe-info' },
@@ -673,10 +727,7 @@ export class Hud {
         h('span', { class: `need ${ch.data.gold >= cost.gold ? 'ok' : 'lack'}` }, `💰 ${fmt(cost.gold)}`),
         ...cost.materials.map((m) => this.need(m.itemId, m.qty)),
         h('button', { class: 'btn', onclick: () => {
-          const r = hs.upgradeBuilding(ch, id, cost, STATION_MAX_LEVEL);
-          if (r.ok) this.announce(`${STATION_NAMES[id]} 升級到 Lv ${hs.buildingLevel(id)}！`, '#9fffb0');
-          else this.log(r.reason!, '#f99');
-          this.markDirty();
+          this.cs.send({ t: 'upgradeStation', station: id });
         } }, '升級'));
     }
     this.station.set(h('div', { class: 'recipes' }, ...rows), upgrade);
@@ -686,25 +737,18 @@ export class Hud {
 
   openNpc(id: NpcId): void {
     if (id === 'shop') this.shop.show();
-    if (id === 'market') {
-      const got = this.state.market.collectPayout(this.state.player);
-      if (got) this.log(`領取交易所收入 ${fmt(got)}G`, '#ffd24a');
-      this.market.show();
-    }
+    if (id === 'market') this.market.show();
     if (id === 'guide') this.help.show();
     this.markDirty();
   }
 
   private renderShop(): void {
-    const ch = this.state.player;
+    const ch = this.player;
     const buy = NPC_SHOP.map(({ itemId, price }) => {
       const def = getDef(ITEM_DB, itemId);
       const buyN = (n: number) => {
         if (ch.data.gold < price * n) return this.log('金幣不足。', '#f99');
-        const it = createItem(ITEM_DB, this.state.uids, itemId, def.stackable ? n : 1, { kind: 'npc', at: Date.now() });
-        if (!ch.inventory.add(it)) return this.log('背包已滿。', '#f99');
-        ch.data.gold -= price * (def.stackable ? n : 1);
-        this.markDirty();
+        this.cs.send({ t: 'npcBuy', itemId, qty: n });
       };
       return h('div', { class: 'shop-row' }, this.iconCell(def, undefined), h('span', { class: 'grow' }, def.name), h('span', { class: 'price' }, `${fmt(price)}G`),
         h('button', { class: 'btn btn-small', onclick: () => buyN(1) }, '買 1'), def.stackable ? h('button', { class: 'btn btn-small', onclick: () => buyN(10) }, '買 10') : undefined);
@@ -714,14 +758,19 @@ export class Hud {
       const def = getDef(ITEM_DB, it.defId);
       return h('div', { class: 'shop-row' }, this.iconCell(def, it), h('span', { class: 'grow', style: `color:${RARITY_INFO[def.rarity].color}` }, `${itemDisplayName(def, it)} x${it.qty}`),
         h('span', { class: 'price' }, `${fmt(Math.floor(def.sellPrice * bonus))}G/個`),
-        h('button', { class: 'btn btn-small', onclick: () => { const g = ch.sellToNpc(it.uid, it.qty); this.log(`賣出 ${def.name} x${it.qty}，獲得 ${fmt(g)}G`, '#ffd24a'); this.markDirty(); } }, '全部賣出'));
+        h('button', { class: 'btn btn-small', onclick: () => this.cs.send({ t: 'npcSell', uid: it.uid, qty: it.qty }) }, '全部賣出'));
     });
     this.shop.set(h('h4', {}, '購買'), ...buy, h('h4', {}, `賣出${bonus > 1 ? `（商人加成 +${Math.round((bonus - 1) * 100)}%）` : ''}`), h('div', { class: 'scroll-list' }, ...sell));
   }
 
   private renderMarket(): void {
-    const ch = this.state.player;
-    const m = this.state.market;
+    const ch = this.player;
+    const m = this.cs.market;
+    if (!m) {
+      this.market.set(h('div', { class: 'muted' }, '讀取中…'));
+      return;
+    }
+    const avgOf = (id: string) => m.averages[id] || undefined;
     const tabs = h('div', { class: 'tabs' },
       ...(['buy', 'sell', 'mine'] as const).map((t) => h('button', { class: `tab${this.marketTab === t ? ' active' : ''}`, onclick: () => { this.marketTab = t; } }, { buy: '購買', sell: '上架物品', mine: '我的商品' }[t])));
     let content: HTMLElement;
@@ -732,12 +781,7 @@ export class Hud {
           h('span', { class: 'grow', style: `color:${RARITY_INFO[def.rarity].color}` }, `${itemDisplayName(def, l.item)} x${l.item.qty}`),
           h('span', { class: 'muted small' }, l.seller),
           h('span', { class: 'price' }, `${fmt(l.price)}G`, l.item.qty > 1 ? h('span', { class: 'muted small' }, ` (${fmt(l.price / l.item.qty)}/個)`) : undefined),
-          h('button', { class: 'btn btn-small', disabled: ch.data.gold < l.price, onclick: () => {
-            const r = m.buy(ch, l.id);
-            if (r.ok) this.log(`購買 ${def.name} x${l.item.qty}，花費 ${fmt(l.price)}G`, '#ffd24a');
-            else this.log(r.reason!, '#f99');
-            this.markDirty();
-          } }, '購買'));
+          h('button', { class: 'btn btn-small', disabled: ch.data.gold < l.price, onclick: () => this.cs.send({ t: 'marketBuy', id: l.id }) }, '購買'));
       });
       content = h('div', { class: 'scroll-list tall' }, ...(rows.length ? rows : [h('div', { class: 'muted' }, '目前沒有商品。')]));
     } else if (this.marketTab === 'sell') {
@@ -747,8 +791,8 @@ export class Hud {
       let form: HTMLElement | undefined;
       if (sel) {
         const def = getDef(ITEM_DB, sel.defId);
-        const ref = referencePrice(this.state, def.id);
-        const avg = m.averagePrice(def.id);
+        const avg = avgOf(def.id);
+        const ref = referencePrice(def.id, avg);
         if (this.sellForm.uid !== sel.uid) this.sellForm = { uid: sel.uid, qty: sel.qty, price: ref * sel.qty };
         const f = this.sellForm;
         const qtyIn = h('input', { type: 'number', min: 1, max: sel.qty, value: f.qty, class: 'input' });
@@ -770,12 +814,8 @@ export class Hud {
           h('label', {}, '數量 ', qtyIn), h('label', {}, ' 總價 ', priceIn), preview,
           h('button', { class: 'btn btn-primary', onclick: () => {
             upd();
-            const r = m.list(ch, sel.uid, f.qty, f.price);
-            if (r.ok) {
-              this.log(`已上架 ${def.name}，支付上架費 ${fmt(listingFee(r.listing!.price))}G`, '#ffd24a');
-              this.sellSel = undefined;
-            } else this.log(r.reason!, '#f99');
-            this.markDirty();
+            this.cs.send({ t: 'marketList', uid: sel.uid, qty: f.qty, price: f.price });
+            this.sellSel = undefined;
           } }, '上架'));
       }
       content = h('div', {}, h('div', { class: 'muted' }, '選擇要販售的物品（綁定物品不會顯示）'), grid, form);
@@ -783,9 +823,9 @@ export class Hud {
       const mine = m.listings.filter((l) => l.seller === ch.name).map((l) => {
         const def = getDef(ITEM_DB, l.item.defId);
         return h('div', { class: 'shop-row' }, this.iconCell(def, l.item), h('span', { class: 'grow' }, `${itemDisplayName(def, l.item)} x${l.item.qty}`), h('span', { class: 'price' }, `${fmt(l.price)}G`),
-          h('button', { class: 'btn btn-small', onclick: () => { const r = m.cancel(ch, l.id); if (!r.ok) this.log(r.reason!, '#f99'); this.markDirty(); } }, '下架'));
+          h('button', { class: 'btn btn-small', onclick: () => this.cs.send({ t: 'marketCancel', id: l.id }) }, '下架'));
       });
-      const sales = m.history.filter((s) => s.seller === ch.name).slice(-8).reverse().map((s) =>
+      const sales = m.mySales.slice(-8).reverse().map((s) =>
         h('div', { class: 'muted small' }, `${new Date(s.at).toLocaleTimeString()} ${getDef(ITEM_DB, s.defId).name} x${s.qty} → ${s.buyer}，實收 ${fmt(s.sellerReceived)}G`));
       content = h('div', {}, ...(mine.length ? mine : [h('div', { class: 'muted' }, '沒有上架中的商品。')]), h('h4', {}, '最近成交'), ...sales,
         h('div', { class: 'muted small', style: 'margin-top:8px' }, `市場已回收金幣：上架費 ${fmt(m.stats.goldSunkFees)}G、交易稅 ${fmt(m.stats.goldSunkTax)}G · 總成交額 ${fmt(m.stats.volume)}G`));
@@ -798,7 +838,7 @@ export class Hud {
   }
 
   private renderDrops(): void {
-    const ch = this.state.player;
+    const ch = this.player;
     const d = ch.derived();
     const sections = MONSTERS.map((m) => {
       const rows = m.drops.drops.map((e) => {

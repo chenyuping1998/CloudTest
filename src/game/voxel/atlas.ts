@@ -8,13 +8,8 @@ import { SeededRng } from '../../core/rng';
 export const TILE = 16;
 const COLS = 16;
 
-export type TileName =
-  | 'grass_top' | 'grass_side' | 'dirt' | 'stone' | 'cobble' | 'sand' | 'gravel' | 'path'
-  | 'log_side' | 'log_top' | 'leaves' | 'maple_leaves' | 'planks' | 'dark_planks'
-  | 'copper_ore' | 'iron_ore' | 'mithril_ore' | 'coal_ore' | 'water'
-  | 'roof' | 'stone_brick' | 'glass' | 'furnace_front' | 'furnace_side' | 'table_top' | 'table_side'
-  | 'iron_block' | 'darkstone' | 'portal' | 'tallgrass' | 'flower_red' | 'flower_yellow'
-  | 'mushroom_cap' | 'mushroom_stem' | 'moss_stone' | 'bookshelf' | 'hay' | 'wool_white';
+export type { TileName } from '../../shared/tiles';
+import type { TileName } from '../../shared/tiles';
 
 const TILES: TileName[] = [
   'grass_top', 'grass_side', 'dirt', 'stone', 'cobble', 'sand', 'gravel', 'path',
