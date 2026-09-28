@@ -1,0 +1,13 @@
+"AppBuild"
+{
+	"AppID" "1000000"
+	"Desc" "Realm of Embers build"
+	"BuildOutput" "../release/steam-output/"
+	"ContentRoot" "../release/"
+	"SetLive" ""
+	"Depots"
+	{
+		"1000001" "depot_windows.vdf"
+		"1000002" "depot_linux.vdf"
+	}
+}

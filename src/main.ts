@@ -10,6 +10,8 @@ import { ClientState } from './client/ClientState';
 import { LocalConnection, WsConnection, type Connection } from './net/connection';
 import { PROTOCOL_VERSION, type ServerMsg } from './net/protocol';
 import { BrowserStorage } from './server/browserStorage';
+import { platform } from './platform/platform';
+import { ZONE_NAMES } from './shared/maps';
 
 const gameEl = document.getElementById('game')!;
 const uiEl = document.getElementById('ui')!;
@@ -56,7 +58,7 @@ function titleScreen(error?: string): void {
   uiEl.replaceChildren();
   const last = BrowserStorage.lastPlayer();
   let mode: 'offline' | 'online' = (localStorage.getItem('roe:mode') as 'online' | null) ?? 'offline';
-  const nameIn = h('input', { class: 'input', placeholder: '角色名稱（2~12 字）', maxlength: 12, value: localStorage.getItem('roe:name') ?? last?.name ?? '冒險者' });
+  const nameIn = h('input', { class: 'input', placeholder: '角色名稱（2~12 字）', maxlength: 12, value: localStorage.getItem('roe:name') ?? last?.name ?? platform.steam?.personaName?.replace(/[^\p{L}\p{N}_]/gu, '').slice(0, 12) ?? '冒險者' });
   const pwIn = h('input', { class: 'input', type: 'password', placeholder: '密碼（至少 4 字）', maxlength: 64 });
   const serverIn = h('input', { class: 'input wide', value: localStorage.getItem('roe:server') ?? DEFAULT_SERVER });
   const errorEl = h('div', { class: 'title-error' }, error ?? '');
@@ -119,15 +121,32 @@ function startGame(conn: Connection, name: string, password: string | undefined,
     uiEl.replaceChildren();
     gameEl.replaceChildren();
     hud = new Hud(uiEl, cs, () => world!);
-    world = new World(gameEl, cs, {
+    try {
+      world = createWorld();
+    } catch (e) {
+      console.error(e);
+      uiEl.replaceChildren(h('div', { class: 'modal-overlay' }, h('div', { class: 'modal frame' },
+        h('div', { html: '⚠ 無法啟動 3D 繪圖（WebGL）。<br>請更新顯示卡驅動程式，或在瀏覽器 / 系統設定中開啟硬體加速後再試一次。' }),
+        h('div', { class: 'modal-actions' }, h('button', { class: 'btn btn-primary', onclick: () => location.reload() }, '重新整理')))));
+      failed = true;
+      conn.close();
+      return;
+    }
+    hud.log(`歡迎來到餘燼王國，${cs.name}！按 F1 查看說明${cs.online ? '，按 Enter 聊天' : ''}。`, '#ffe680');
+    bindInput(cs, world, hud);
+    startLoop();
+  };
+
+  const createWorld = () =>
+    new World(gameEl, cs, {
       floatText: (p, t, c, big) => {
         const s = world!.toScreen(p);
         if (s.visible) hud!.floatText(s.x, s.y, t, c, big);
       },
       playerMenu: (n, x, y) => hud!.playerMenu(n, x, y),
     });
-    hud.log(`歡迎來到餘燼王國，${cs.name}！按 F1 查看說明${cs.online ? '，按 Enter 聊天' : ''}。`, '#ffe680');
-    bindInput(cs, world, hud);
+
+  const startLoop = () => {
     const timer = new THREE.Timer();
     const loop = (t?: number) => {
       if (!world) return;
@@ -150,7 +169,12 @@ function startGame(conn: Connection, name: string, password: string | undefined,
       return;
     }
     switch (msg.t) {
+      case 'achievement':
+        hud.achievement(msg.name, msg.desc);
+        platform.unlockAchievement(msg.id);
+        break;
       case 'zone':
+        platform.setStatus(`${msg.zone === 'homestead' ? '在家園經營' : `在${ZONE_NAMES[msg.zone]}冒險`}`);
         cs.zone = msg.zone;
         cs.zoneOwner = msg.owner;
         if (msg.homestead) cs.setHome(msg.homestead);
@@ -279,6 +303,11 @@ function bindInput(cs: ClientState, world: World, hud: Hud): void {
       return;
     }
     if (k === 'f1') e.preventDefault();
+    if (k === 'f11') {
+      e.preventDefault();
+      platform.toggleFullscreen();
+      return;
+    }
     if (k === 'z') world.pickupNearest();
     else if (k === ' ') {
       e.preventDefault();

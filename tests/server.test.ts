@@ -327,3 +327,33 @@ describe('GameServer: second map', () => {
     expect(Math.hypot(back.x - 31.5, back.z - 8.5)).toBeLessThan(4);
   });
 });
+
+describe('GameServer: achievements', () => {
+  it('unlocks FIRST_BLOOD once, persists it, and syncs job change / party achievements', () => {
+    const s = setup();
+    const a = s.join('Achiever');
+    const b = s.join('Friend');
+    const dbg = s.server.debugPlayer('Achiever')!;
+    dbg.ch.data.stats.str = 99;
+    dbg.ch.data.stats.dex = 99;
+    for (let i = 0; i < 2; i++) {
+      const slime = s.server.debugMonsters().find((m) => m.def === 'jelly_slime' && !m.dead)!;
+      dbg.setPos(slime.x + 1, slime.z);
+      s.send(a, { t: 'attack', id: slime.id });
+      s.advance(3);
+    }
+    expect(a.of('achievement').filter((x) => x.id === 'FIRST_BLOOD')).toHaveLength(1);
+    dbg.ch.progression.jobLevel = 10;
+    s.send(a, { t: 'changeJob', job: 'archer' });
+    s.advance(0.1);
+    expect(a.of('achievement').some((x) => x.id === 'JOB_CHANGE')).toBe(true);
+    s.send(a, { t: 'partyInvite', target: 'Friend' });
+    s.send(b, { t: 'partyRespond', from: 'Achiever', accept: true });
+    expect(b.of('achievement').some((x) => x.id === 'PARTY_UP')).toBe(true);
+    s.server.disconnect(a);
+    const a2 = s.join('Achiever');
+    expect(a2.last('self')!.data.achievements).toContain('FIRST_BLOOD');
+    s.advance(0.5);
+    expect(a2.of('achievement')).toHaveLength(0);
+  });
+});

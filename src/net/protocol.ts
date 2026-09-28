@@ -154,4 +154,5 @@ export type ServerMsg =
   | { t: 'chat'; from: string; text: string; system?: boolean; channel?: 'party' }
   | { t: 'partyInvite'; from: string }
   | { t: 'party'; view: PartyView | null }
+  | { t: 'achievement'; id: string; name: string; desc: string }
   | { t: 'players'; names: string[] };

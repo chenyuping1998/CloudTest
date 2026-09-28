@@ -27,9 +27,9 @@ tools/      掉寶平衡報表
 |---|---|---|
 | **M0 原型** ✅ | 單機可玩：打怪、掉寶、強化、插卡、家園、交易所 | 完成 |
 | **M1 伺服器** ✅（原型） | Node.js 權威伺服器（WebSocket）、帳號密碼（scrypt）、檔案存檔、交易日誌、玩家交易、共用交易所、聊天。待辦：換 PostgreSQL、TLS、水平擴充 | `npm run server` |
-| **M2 多人** | 同地圖多人同步、組隊、玩家間交易視窗（`TradeSession` 已完成）、真人交易所 | 封閉測試 |
-| **M3 內容** | 3~5 張地圖、第二轉職、技能、地下城、更多 MVP | Steam「搶先體驗」頁面 |
-| **M4 Steam 整合** | Electron 打包、steamworks.js、Steam 登入、成就、雲端設定、商店頁素材、分級 | 搶先體驗上架 |
+| **M2 多人** ✅ | 同地圖多人同步、組隊、玩家交易視窗、真人交易所、聊天、成就 | 可進行封閉測試 |
+| **M3 內容**（進行中） | 已完成：第二張地圖（Lv 50~70）。待辦：第三張地圖、第二轉職、主動技能、地下城 | Steam「搶先體驗」頁面 |
+| **M4 Steam 整合** ✅（技術面） | Electron 打包（Win/Linux/Mac）、steamworks.js、成就、Overlay、Rich Presence、SteamPipe 設定。待辦：Steam 登入票證驗證（取代密碼）、雲端設定、商店頁素材、分級 | 搶先體驗上架 |
 | **M5 營運** | 經濟儀表板、反作弊、RMT 偵測、活動系統 | 正式版 |
 
 ## Steam 上架清單
@@ -42,8 +42,19 @@ tools/      掉寶平衡報表
 - [ ] 隱私權政策（有帳號與伺服器就需要）
 - [ ] 原創性檢查：名稱、怪物、美術均為原創，不可使用天堂/RO/Minecraft 的名稱或素材
 
+## 桌面版技術細節
+
+- `electron/main.cjs`：主程序。安全設定：`contextIsolation`、`sandbox`、關閉 `nodeIntegration`、CSP（只允許自己的檔案與 ws/wss 連線）、禁止外部導航。
+- `electron/preload.cjs`：只暴露 `window.steam`（名稱、成就、Rich Presence）與 `window.desktop`（全螢幕、版本）。
+- `src/platform/platform.ts`：遊戲只透過這層呼叫 Steam；瀏覽器版全部是空操作。
+- 沒有 Steam 時自動以一般模式執行；`DISABLE_STEAM=1` 可強制關閉。
+- 自動化煙霧測試：`ROE_SMOKE_TEST=shot.png ROE_SMOKE_START=1 electron .`（會自動開始遊戲並截圖；沒有 GPU 的 CI 會自動改用軟體繪圖）。
+- 顯示卡不支援 WebGL 時會顯示明確的錯誤訊息，而不是黑畫面。
+- Windows 版目前未簽章：上架前需購買程式碼簽章憑證，並在 `package.json` 的 `build.win` 設定。
+
 ## 下一步建議
 
 1. 美術：用 Blockbench 製作正式的方塊模型與 16×16 材質，替換程序化生成的暫代美術（介面已預留：`voxel/atlas.ts`、`voxel/models.ts`）
-2. 伺服器原型（M1）：先做「交易所」上線，因為它是經濟核心
-3. 找 10~20 位玩家做封閉測試，用 `npm run sim:drops` 的報表對照真實數據
+2. 伺服器上線準備：PostgreSQL、TLS（wss://）、Steam 登入票證驗證
+3. 內容：第二轉職與主動技能（目前 Job Lv 50 約在 Base Lv 50 封頂）、第三張地圖
+4. 找 10~20 位玩家做封閉測試，用 `npm run sim:drops`、`npm run sim:leveling` 的報表對照真實數據

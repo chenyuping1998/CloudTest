@@ -12,21 +12,63 @@
     "test": "vitest run",
     "sim:drops": "vite-node tools/simulate-drops.ts",
     "server": "vite-node server/main.ts",
-    "sim:leveling": "vite-node tools/simulate-leveling.ts"
+    "sim:leveling": "vite-node tools/simulate-leveling.ts",
+    "desktop": "vite build && electron .",
+    "desktop:smoke": "vite build && ROE_SMOKE_TEST=smoke.png DISABLE_STEAM=1 electron .",
+    "dist": "vite build && electron-builder --dir",
+    "dist:win": "vite build && electron-builder --win --dir",
+    "dist:linux": "vite build && electron-builder --linux --dir",
+    "dist:mac": "vite build && electron-builder --mac --dir"
   },
   "license": "MIT",
   "dependencies": {
-    "@chinese-fonts/cubic": "^3.0.0",
-    "three": "^0.186.1",
+    "steamworks.js": "^0.4.0",
     "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",
     "@types/three": "^0.186.0",
     "@types/ws": "^8.18.1",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.9.3",
     "vite": "^8.3.1",
     "vite-node": "^6.0.0",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.2",
+    "three": "^0.186.1",
+    "@chinese-fonts/cubic": "^3.0.0"
+  },
+  "main": "electron/main.cjs",
+  "productName": "Realm of Embers",
+  "author": "Realm of Embers Team",
+  "build": {
+    "appId": "com.realmofembers.game",
+    "productName": "Realm of Embers",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/steamworks.js/**"
+    ],
+    "extraFiles": [],
+    "win": {
+      "target": "dir",
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": "dir",
+      "category": "Game",
+      "icon": "build/icon.png"
+    },
+    "mac": {
+      "target": "dir",
+      "category": "public.app-category.role-playing-games",
+      "icon": "build/icon.png"
+    }
   }
 }

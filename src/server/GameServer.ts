@@ -25,6 +25,7 @@ import type { ClientMsg, MarketView, PartyShareMode, PartyView, ServerMsg, Trade
 import { PROTOCOL_VERSION } from '../net/protocol';
 import { homesteadLayout, MVP_LOCATION, NPC_POSITIONS, worldLayout, ZONE_NAMES, ZONE_SPAWNS, type MapLayout, type WorldZoneId, type ZoneId } from '../shared/maps';
 import { BOT_NAMES, MarketBots } from './marketBots';
+import { ACHIEVEMENT_DB } from '../shared/achievements';
 
 // ------------------------------------------------------------ 介面
 
@@ -397,6 +398,7 @@ export class GameServer {
     }
     p.intent = undefined;
     p.conn.send({ t: 'zone', zone: zone.kind, owner: zone.owner, homestead: zone.home ? structuredClone(zone.home.data) : undefined });
+    if (zone.kind === 'frost') this.achieve(p, 'FROST_ARRIVAL');
     zone.nextSnap = 0;
   }
 
@@ -488,7 +490,10 @@ export class GameServer {
         return;
       case 'compound': {
         const r = ch.compoundCard(msg.cardUid, msg.equipUid);
-        if (r.ok) this.announce(p, '卡片鑲嵌成功！', '#b366ff');
+        if (r.ok) {
+          this.announce(p, '卡片鑲嵌成功！', '#b366ff');
+          this.achieve(p, 'CARD_COMPOUND');
+        }
         else this.log(p, r.reason!, '#f99');
         this.markSelf(p);
         return;
@@ -575,6 +580,7 @@ export class GameServer {
       const sp = this.byName.get(seller);
       if (sp) {
         this.announce(sp, msg, '#ffd24a');
+        this.achieve(sp, 'FIRST_TRADE');
         this.markSelf(sp);
         this.sendMarket(sp);
       }
@@ -815,6 +821,9 @@ export class GameServer {
       const be = capped + rested;
       const je = Math.max(1, Math.floor(Math.min(m.def.jobExp * mod * share, (m.def.jobExp / Math.max(1, m.def.baseExp)) * capped)));
       const lv = addExp(prog, be, je);
+      this.achieve(pl, 'FIRST_BLOOD');
+      if (m.def.id === 'bone_lich') this.achieve(pl, 'MVP_LICH');
+      if (m.def.id === 'frost_queen') this.achieve(pl, 'MVP_QUEEN');
       this.log(pl, `擊敗 ${m.def.name}，獲得 Base EXP ${be}${rested ? `（休息加成 +${rested}）` : ''}${capped < raw ? '（已達單次上限）' : ''}、Job EXP ${je}`, '#bcd');
       if (lv.baseLevelsGained) {
         const d = pl.ch.derived();
@@ -1078,6 +1087,7 @@ export class GameServer {
     if (res.outcome === 'success') {
       const gain = res.newLevel - target.enchant;
       target.enchant = res.newLevel;
+      if (res.newLevel >= 7) this.achieve(p, 'ENCHANT_7');
       this.announce(p, `${tdef.name} 發出${gain > 1 ? '耀眼的' : '一陣'}${kind === 'weapon' ? '藍色' : '銀色'}光芒！（+${res.newLevel}）`, '#8cf');
       if (res.newLevel >= safe + 3) this.broadcastAnnounce(`【全服公告】${p.name} 成功將 ${tdef.name} 強化到 +${res.newLevel}！`, '#ff9f1a');
     } else if (res.outcome === 'downgraded') {
@@ -1142,6 +1152,8 @@ export class GameServer {
       if (r.ok) {
         const def = getDef(ITEM_DB, r.sale!.defId);
         this.log(p, `購買 ${def.name} x${r.sale!.qty}，花費 ${r.sale!.price.toLocaleString()}G`, '#ffd24a');
+        this.achieve(p, 'FIRST_TRADE');
+        if (seller) this.achieve(seller, 'FIRST_TRADE');
         if (seller) {
           this.announce(seller, `【交易所】${p.name} 買下了你的 ${def.name} x${r.sale!.qty}，入帳 ${r.sale!.sellerReceived.toLocaleString()}G`, '#ffd24a');
           this.markSelf(seller);
@@ -1259,7 +1271,10 @@ export class GameServer {
           for (const x of [a, b]) {
             x.conn.send({ t: 'trade', view: null });
             this.markSelf(x);
-            if (r.ok) this.announce(x, '交易完成！', '#8fe07a');
+            if (r.ok) {
+              this.announce(x, '交易完成！', '#8fe07a');
+              this.achieve(x, 'FIRST_TRADE');
+            }
             else this.log(x, `交易失敗：${r.reason}`, '#f99');
           }
           if (r.ok && r.log) console.log('[trade]', JSON.stringify(r.log));
@@ -1361,6 +1376,8 @@ export class GameServer {
     if (party.members.length >= PARTY_MAX) return this.log(p, '隊伍已滿。', '#f99');
     party.members.push(p.name);
     p.party = party;
+    this.achieve(p, 'PARTY_UP');
+    this.achieve(inviter, 'PARTY_UP');
     this.partyMsg(party, `${p.name} 加入了隊伍！`);
     this.pushParty(party);
   }
@@ -1399,6 +1416,30 @@ export class GameServer {
     this.pushParty(party);
   }
 
+  // ============================================================ 成就
+
+  private achieve(p: PlayerEnt, id: string): void {
+    const list = (p.ch.data.achievements ??= []);
+    if (list.includes(id)) return;
+    const def = ACHIEVEMENT_DB.get(id);
+    if (!def) return;
+    list.push(id);
+    p.conn.send({ t: 'achievement', id, name: def.name, desc: def.desc });
+    this.markSelf(p);
+  }
+
+  /** 檢查與角色狀態相關的成就（升級、生活技能等） */
+  private checkProgressAchievements(p: PlayerEnt): void {
+    const lv = p.ch.progression.baseLevel;
+    if (lv >= 30) this.achieve(p, 'LEVEL_30');
+    if (lv >= 50) this.achieve(p, 'LEVEL_50');
+    if (lv >= 70) this.achieve(p, 'LEVEL_70');
+    if (p.ch.data.classId !== 'novice') this.achieve(p, 'JOB_CHANGE');
+    if (Object.values(p.ch.data.lifeSkills).some((s) => s.level >= 20)) this.achieve(p, 'MASTER_CRAFTER');
+    if (p.home.data.level >= 2) this.achieve(p, 'HOME_LV2');
+    if (p.home.data.level >= 3) this.achieve(p, 'HOME_LV3');
+  }
+
   // ============================================================ 傳送
 
   private markSelf(p: PlayerEnt): void {
@@ -1410,6 +1451,7 @@ export class GameServer {
   }
 
   private flushSelf(p: PlayerEnt): void {
+    this.checkProgressAchievements(p);
     p.dirtySelf = false;
     p.conn.send({ t: 'self', data: p.ch.serialize() });
   }

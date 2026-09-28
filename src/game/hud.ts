@@ -174,6 +174,16 @@ export class Hud {
     this.logEl.scrollTop = this.logEl.scrollHeight;
   }
 
+  /** 成就解鎖通知（右下角滑入的卡片） */
+  achievement(name: string, desc: string): void {
+    const el = h('div', { class: 'achievement frame' },
+      h('div', { class: 'achievement-icon' }, '🏆'),
+      h('div', {}, h('div', { class: 'achievement-title' }, `成就解鎖：${name}`), h('div', { class: 'muted small' }, desc)));
+    this.root.appendChild(el);
+    this.log(`🏆 成就解鎖：${name} — ${desc}`, '#ffd24a');
+    setTimeout(() => el.remove(), 5000);
+  }
+
   announce(msg: string, color: string): void {
     const el = h('div', { class: 'announce-line', style: `color:${color}` }, msg);
     this.announceEl.appendChild(el);

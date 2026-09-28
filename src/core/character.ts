@@ -20,6 +20,8 @@ export interface CharacterData {
   lifeSkills: Record<LifeSkillId, LifeSkill>;
   /** 休息經驗池（離線累積） */
   restedExp?: number;
+  /** 已解鎖的成就 id */
+  achievements?: string[];
 }
 
 export interface DerivedStats {

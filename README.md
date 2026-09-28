@@ -15,6 +15,8 @@ npm test           # 單元測試（掉率驗證、交易防複製…）
 npm run sim:drops  # 掉寶平衡報表
 npm run sim:leveling # 練功節奏報表（每級耗時、最佳練功怪）
 npm run server     # 連線伺服器 ws://localhost:8787（標題畫面選「連線遊玩」）
+npm run desktop    # 以 Electron 桌面版執行（有開 Steam 時會自動連上 Steam）
+npm run dist:win   # 打包 Windows 版到 release/win-unpacked（Linux：dist:linux、Mac：dist:mac）
 npm run build      # 產生 dist/
 ```
 
@@ -41,7 +43,11 @@ npm run build      # 產生 dist/
 - **交易**：玩家交易視窗（鎖定/確認/原子交換）、交易所（上架費、交易稅、託管）
 - **家園**：採礦、伐木、熔爐、木工台、鐵砧、鍊金台、家園與設施升級
 - **介面**：像素中文字體（俐方體 11 號，可商用）、金邊石板風格視窗、方塊頭像、旋轉小地圖、全服公告
-- **存檔**：自動存檔（localStorage）
+- **組隊**：6 人隊伍、經驗均分（+12%/人）、隊伍掉寶優先權、隊伍頻道
+- **第二張地圖**：霜語山脈（Lv 50~70），雪地、冰湖、6 種新怪物與 MVP 冰霜女王、新裝備層級
+- **桌面版 / Steam**：Electron 打包（Windows / Linux / Mac）、Steam 成就 / Overlay / Rich Presence、SteamPipe 上傳設定（`steam/`）
+- **成就**：15 個，由伺服器判定、同步到 Steam
+- **存檔**：自動存檔（單機存在本機；連線版存在伺服器）
 
 ## 文件
 

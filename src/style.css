@@ -364,3 +364,12 @@ b { font-weight: normal; }
 .party-kick { margin-left: auto; background: none; border: none; color: var(--lack); cursor: pointer; font-size: 14px; padding: 0 2px; }
 .party-leave { align-self: flex-end; margin-top: 2px; }
 .log-line.chat.party { color: #8fe07a; }
+
+/* ---------- 成就通知 ---------- */
+.achievement {
+  position: fixed; right: 16px; bottom: 90px; z-index: 900; display: flex; gap: 10px; align-items: center; padding: 10px 16px; min-width: 260px;
+  animation: achIn 5s forwards;
+}
+.achievement-icon { font-size: 28px; }
+.achievement-title { color: var(--gold-hi); text-shadow: 1px 1px 0 #000; }
+@keyframes achIn { 0% { transform: translateX(120%); } 8%, 88% { transform: none; opacity: 1; } 100% { transform: translateX(120%); opacity: 0; } }
