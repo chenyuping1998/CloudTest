@@ -92,7 +92,7 @@ describe('combat', () => {
   it('damage is always positive on hit', () => {
     const rng = new SeededRng(11);
     for (let i = 0; i < 100; i++) {
-      const r = resolveAttack({ atk: 1, def: 0, hit: 100, flee: 0, critPct: 0 }, { atk: 0, def: 999, hit: 0, flee: 0, critPct: 0 }, rng);
+      const r = resolveAttack({ atk: 1, def: 0, hit: 100, flee: 0, critPct: 0 }, { def: 999, flee: 0 }, rng);
       if (r.kind !== 'miss') expect(r.damage).toBeGreaterThanOrEqual(1);
     }
   });

@@ -74,7 +74,7 @@ export class Market {
     seller.data.gold -= fee;
     this.stats.goldSunkFees += fee;
     const listing: Listing = {
-      id: `L${++this.seq}`,
+      id: `L${now.toString(36)}-${++this.seq}`,
       seller: seller.name,
       item,
       price,

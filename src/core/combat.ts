@@ -23,7 +23,7 @@ export function defReduction(def: number): number {
   return 100 / (100 + Math.max(0, def));
 }
 
-export function resolveAttack(att: CombatantStats, target: CombatantStats, rng: Rng): AttackResult {
+export function resolveAttack(att: CombatantStats, target: Pick<CombatantStats, 'def' | 'flee'>, rng: Rng): AttackResult {
   // 爆擊必中且無視防禦（RO 經典設定）
   if (rng.next() * 100 < att.critPct) {
     return { kind: 'crit', damage: Math.max(1, Math.round(att.atk * 1.4 * (0.95 + rng.next() * 0.1))) };
