@@ -15,9 +15,12 @@ import type { ItemInstance, StatKey } from '../core/types';
 import { STAT_KEYS } from '../core/types';
 import { CLASSES, ITEM_DB, NODE_DB, STATION_MAX_LEVEL, STATION_NAMES } from '../data';
 import { SKILL_DB } from '../data/skills';
+import { QUEST_DB } from '../data/quests';
 import type { AccountRecord, WorldRecord } from './GameServer';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
+
+const TUTORIAL_QUESTS = ['q_welcome', 'q_first_hunt', 'q_jelly', 'q_home', 'q_wood', 'q_plank', 'q_job', 'q_market', 'q_storage'];
 
 /** 物品改名對照：舊 id → 新 id（刪除改名後的舊物品時在這裡登記，玩家的東西就不會消失） */
 export const ITEM_RENAMES: Record<string, string> = {};
@@ -42,6 +45,17 @@ export const MIGRATIONS: Migration[] = [
     note: '新增倉庫',
     run(rec) {
       rec.character.storage ??= { capacity: STORAGE_CAPACITY, items: [] };
+    },
+  },
+  {
+    to: 3,
+    note: '新增任務；已經 Lv 20 以上的老玩家直接視為完成新手教學',
+    run(rec) {
+      const c = rec.character;
+      c.quests ??= { active: [], done: [], dailyDone: {} };
+      if (c.progression.baseLevel >= 20) {
+        for (const id of TUTORIAL_QUESTS) if (!c.quests.done.includes(id)) c.quests.done.push(id);
+      }
     },
   },
 ];
@@ -128,6 +142,11 @@ function sanitizeCharacter(c: CharacterData, fixes: string[]): void {
     }
   }
   c.buffs = (c.buffs ?? []).filter((b) => SKILL_DB.has(b.id));
+  if (c.quests) {
+    const before = c.quests.active.length;
+    c.quests.active = c.quests.active.filter((q) => QUEST_DB.has(q.id));
+    if (c.quests.active.length !== before) fixes.push(`移除 ${before - c.quests.active.length} 個已不存在的進行中任務`);
+  }
 }
 
 function sanitizeHomestead(h: HomesteadData, fixes: string[]): void {

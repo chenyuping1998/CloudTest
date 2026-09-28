@@ -50,6 +50,9 @@ export type ClientMsg =
   | { t: 'partyLeave' }
   | { t: 'partyKick'; name: string }
   | { t: 'partyShare'; mode: PartyShareMode }
+  | { t: 'questAccept'; id: string }
+  | { t: 'questTurnIn'; id: string }
+  | { t: 'questAbandon'; id: string }
   | { t: 'storageDeposit'; uid: string; qty: number }
   | { t: 'storageWithdraw'; uid: string; qty: number }
   | { t: 'learnSkill'; skill: string }
@@ -139,7 +142,7 @@ export interface MarketView {
 }
 
 /** 只給自己聽的音效（撿東西、金幣入帳、強化結果）；範圍性的聲音由 fx 事件決定 */
-export type SfxName = 'pickup' | 'coin' | 'enchantOk' | 'enchantFail' | 'rare';
+export type SfxName = 'pickup' | 'coin' | 'enchantOk' | 'enchantFail' | 'rare' | 'quest';
 
 export type FxKind = 'dmg' | 'crit' | 'miss' | 'hurt' | 'heal' | 'levelup' | 'text' | 'poof' | 'chips' | 'skill';
 

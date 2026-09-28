@@ -13,7 +13,7 @@ import { settings } from './settings';
 
 export type Sfx =
   | 'hit' | 'crit' | 'miss' | 'hurt' | 'heal' | 'levelup' | 'pickup' | 'coin' | 'ui' | 'error' | 'death'
-  | 'mine' | 'chop' | 'enchantOk' | 'enchantFail' | 'portal' | 'achievement' | 'rare'
+  | 'mine' | 'chop' | 'enchantOk' | 'enchantFail' | 'portal' | 'achievement' | 'rare' | 'quest'
   | 'skill_physical' | 'skill_fire' | 'skill_ice' | 'skill_lightning' | 'skill_holy' | 'skill_gold';
 
 const NOTE = (n: number) => 440 * Math.pow(2, (n - 69) / 12);
@@ -141,6 +141,7 @@ class AudioEngine {
       case 'heal': [72, 76, 79].forEach((n, i) => this.tone(NOTE(n), 0.25, 'sine', 0.12 * v, { delay: i * 0.06 })); break;
       case 'levelup': [60, 64, 67, 72, 76, 79, 84].forEach((n, i) => this.tone(NOTE(n), 0.3, 'square', 0.1, { delay: i * 0.07 })); break;
       case 'achievement': [67, 72, 76, 84].forEach((n, i) => this.tone(NOTE(n), 0.45, 'triangle', 0.16, { delay: i * 0.1 })); break;
+      case 'quest': [72, 76, 79, 76, 84].forEach((n, i) => this.tone(NOTE(n), i === 4 ? 0.5 : 0.14, 'triangle', 0.12, { delay: i * 0.09 })); break;
       case 'rare': [79, 84, 88, 91, 96].forEach((n, i) => this.tone(NOTE(n), 0.35, 'square', 0.07, { delay: i * 0.05 })); break;
       case 'pickup': this.tone(NOTE(84), 0.06, 'square', 0.08); this.tone(NOTE(91), 0.08, 'square', 0.07, { delay: 0.05 }); break;
       case 'coin': this.tone(NOTE(88), 0.05, 'square', 0.07); this.tone(NOTE(93), 0.14, 'square', 0.07, { delay: 0.05 }); break;

@@ -23,6 +23,7 @@ import { applyModelOverride } from './voxel/modelOverrides';
 import { tickMaterials } from './voxel/mesher';
 import { Terrain } from './voxel/terrain';
 import { settings, type Settings } from './settings';
+import { npcQuestMarker, questDay } from '../core/quests';
 
 export type { ZoneId, NpcId };
 
@@ -861,7 +862,12 @@ export class World {
       const locked = it.owner && it.owner !== this.cs.name && !it.party?.includes(this.cs.name);
       out.push({ pos: it.pos.clone().setY(it.pos.y + 0.8), text: `${def.name}${it.qty > 1 ? ` x${it.qty}` : ''}${locked ? `（${it.owner}）` : ''}`, color: locked ? '#8a8a8a' : RARITY_INFO[def.rarity].color, kind: 'item' });
     }
-    for (const n of this.npcs) out.push({ pos: above(n), text: n.name, color: '#9fe0ff', kind: 'npc' });
+    const day = questDay(Date.now());
+    for (const n of this.npcs) {
+      // RO 式任務記號：! 有新任務、? 可以回報
+      const mark = this.cs.player ? npcQuestMarker(this.cs.player, n.id, day) : undefined;
+      out.push({ pos: above(n), text: mark ? `${mark === '?' ? '❔' : '❕'} ${n.name}` : n.name, color: mark ? '#ffe066' : '#9fe0ff', kind: 'npc' });
+    }
     if (this.layout) {
       for (const s of this.layout.stations) out.push({ pos: new THREE.Vector3(s.x + 0.5, this.groundY(s.x, s.z) + 1.7, s.z), text: `${STATION_NAMES[s.id]} Lv${this.cs.homestead.buildingLevel(s.id)}`, color: '#ffe0a0', kind: 'station' });
       for (const p of this.layout.portals) {

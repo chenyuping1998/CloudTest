@@ -22,7 +22,10 @@ import { WEIGHT_NO_ACTION, WEIGHT_NO_REGEN } from '../core/character';
 import { SECOND_JOB_OF } from '../data/classes';
 import { ask, bar, fmt, h, Panel } from './ui';
 import type { NpcId, World } from './world';
-import { ZONE_NAMES } from '../shared/maps';
+import { NPC_POSITIONS, ZONE_NAMES } from '../shared/maps';
+import { MONSTER_DB, RECIPE_DB } from '../data';
+import { MAX_ACTIVE_QUESTS, QUEST_DB, type QuestDef } from '../data/quests';
+import { objectiveProgress, questDay, questStatus } from '../core/quests';
 
 type InvFilter = 'all' | 'equip' | 'use' | 'mat' | 'etc';
 
@@ -62,6 +65,10 @@ export class Hud {
   private chatInput: HTMLInputElement;
   private onlineEl: HTMLSpanElement;
   private partyEl: HTMLDivElement;
+  private tracker: HTMLDivElement;
+  private npcDialog: Panel;
+  private questsPanel: Panel;
+  private dialogNpc: NpcId = 'guide';
   private tradeAddUid?: string;
   private tradeGoldDraft = '';
 
@@ -86,6 +93,7 @@ export class Hud {
     this.floatLayer = h('div', { class: 'float-layer' });
     this.status = h('div', { class: 'hud-status frame' });
     this.partyEl = h('div', { class: 'hud-party frame', style: 'display:none' });
+    this.tracker = h('div', { class: 'hud-tracker frame', style: 'display:none' });
     this.logEl = h('div', { class: 'hud-log' });
     this.announceEl = h('div', { class: 'hud-announce' });
     this.hotbar = h('div', { class: 'hud-hotbar' });
@@ -126,7 +134,7 @@ export class Hud {
       if ((e.target as HTMLElement).closest('button:not([disabled]), .tab, .item-cell:not(.empty)')) audio.play('ui');
     });
     window.addEventListener('mouseup', () => (this.pointerDown = false));
-    root.append(this.labelLayer, this.floatLayer, this.status, this.partyEl, menu, minimapBox, logBox, this.announceEl, this.hotbar, this.tooltip);
+    root.append(this.labelLayer, this.floatLayer, this.status, this.partyEl, this.tracker, menu, minimapBox, logBox, this.announceEl, this.hotbar, this.tooltip);
 
     this.inv = new Panel(root, '背包', { x: window.innerWidth - 450, y: 70, w: 430 }, () => (this.pending = undefined));
     this.stats = new Panel(root, '角色資訊', { x: 20, y: 60, w: 620 });
@@ -138,11 +146,13 @@ export class Hud {
     this.drops = new Panel(root, '怪物掉寶表', { x: 380, y: 60, w: 520 });
     this.skillsPanel = new Panel(root, '技能', { x: 360, y: 60, w: 600 });
     this.settingsPanel = new Panel(root, '設定', { x: window.innerWidth / 2 - 190, y: 100, w: 380 });
+    this.npcDialog = new Panel(root, '委託', { x: window.innerWidth / 2 - 240, y: 70, w: 480 });
+    this.questsPanel = new Panel(root, '任務日誌', { x: 380, y: 70, w: 440 });
     this.storagePanel = new Panel(root, '倉庫', { x: window.innerWidth - 880, y: 70, w: 420 });
     this.tradePanel = new Panel(root, '交易', { x: 360, y: 90, w: 560 }, () => {
       if (this.cs.trade) this.cs.send({ t: 'tradeCancel' });
     });
-    for (const p of [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.tradePanel, this.skillsPanel, this.storagePanel, this.settingsPanel]) {
+    for (const p of [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.tradePanel, this.skillsPanel, this.storagePanel, this.settingsPanel, this.npcDialog, this.questsPanel]) {
       p.body.addEventListener('click', () => this.markDirty());
     }
   }
@@ -163,11 +173,11 @@ export class Hud {
   }
 
   anyPanelOpen(): boolean {
-    return [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel, this.settingsPanel].some((p) => p.visible);
+    return [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel, this.settingsPanel, this.npcDialog, this.questsPanel].some((p) => p.visible);
   }
 
   closeTopPanel(): boolean {
-    const open = [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel, this.settingsPanel]
+    const open = [this.inv, this.stats, this.home, this.station, this.shop, this.market, this.help, this.drops, this.skillsPanel, this.storagePanel, this.settingsPanel, this.npcDialog, this.questsPanel]
       .filter((p) => p.visible)
       .sort((a, b) => Number(b.el.style.zIndex) - Number(a.el.style.zIndex));
     if (!open.length) return false;
@@ -184,7 +194,7 @@ export class Hud {
   }
 
   key(k: string): void {
-    const map: Record<string, Panel> = { i: this.inv, s: this.stats, h: this.home, d: this.drops, f1: this.help, k: this.skillsPanel, o: this.settingsPanel };
+    const map: Record<string, Panel> = { i: this.inv, s: this.stats, h: this.home, d: this.drops, f1: this.help, k: this.skillsPanel, o: this.settingsPanel, l: this.questsPanel };
     const p = map[k];
     if (p) this.toggle(p);
     const idx = ['1', '2', '3', '4'].indexOf(k);
@@ -285,6 +295,7 @@ export class Hud {
     }
     this.renderStatus();
     this.renderParty();
+    this.renderTracker();
     this.renderHotbar();
     // 正在輸入的視窗不重繪，避免輸入內容與焦點被清掉
     const typing = document.activeElement instanceof HTMLInputElement ? document.activeElement.closest('.panel') : null;
@@ -303,6 +314,8 @@ export class Hud {
     draw(this.skillsPanel, () => this.renderSkills());
     draw(this.storagePanel, () => this.renderStorage());
     draw(this.settingsPanel, () => this.renderSettings());
+    draw(this.npcDialog, () => this.renderNpcDialog());
+    draw(this.questsPanel, () => this.renderQuestLog());
   }
 
   // ------------------------------------------------------------ 多人：聊天、交易
@@ -1143,12 +1156,121 @@ export class Hud {
   openNpc(id: NpcId): void {
     if (id === 'shop') this.shop.show();
     if (id === 'market') this.market.show();
-    if (id === 'guide') this.help.show();
+    if (id === 'guide') this.help.hide();
+    // 有任務的 NPC（露娜）打開任務對話
+    if ([...QUEST_DB.values()].some((q) => q.giver === id)) {
+      this.dialogNpc = id;
+      this.npcDialog.show();
+    }
     if (id === 'storage') {
       this.storagePanel.show();
       this.inv.show();
     }
     this.markDirty();
+  }
+
+  // ------------------------------------------------------------ 任務
+
+  private objectiveLines(def: QuestDef, progress: number[] | undefined): HTMLElement[] {
+    const ch = this.player;
+    return def.objectives.map((o, i) => {
+      const p = objectiveProgress(ch, o, progress?.[i] ?? 0);
+      const done = p.have >= p.need;
+      const label = o.kind === 'kill' ? `打倒 ${MONSTER_DB.get(o.monster)?.name}`
+        : o.kind === 'collect' ? `${o.consume ? '交出' : '持有'} ${getDef(ITEM_DB, o.item).name}`
+        : o.kind === 'craft' ? `製作 ${getDef(ITEM_DB, RECIPE_DB.get(o.recipe)!.output.itemId).name}`
+        : o.kind === 'visit' ? `前往 ${ZONE_NAMES[o.zone]}`
+        : o.kind === 'talk' ? `和 ${[...NPC_POSITIONS].find((n) => n.id === o.npc)?.name ?? o.npc} 說話`
+        : o.tier === 1 ? '完成轉職' : '完成二轉';
+      return h('div', { class: `q-obj${done ? ' done' : ''}` }, `${done ? '✔' : '・'} ${label}`, p.need > 1 ? h('span', { class: 'q-count' }, ` ${p.have}/${p.need}`) : '');
+    });
+  }
+
+  private rewardLine(def: QuestDef): HTMLElement {
+    const r = def.reward;
+    const parts: (HTMLElement | string)[] = [];
+    if (r.baseExp) parts.push(`Base EXP ${fmt(r.baseExp)}`);
+    if (r.jobExp) parts.push(`Job EXP ${fmt(r.jobExp)}`);
+    if (r.gold) parts.push(`${fmt(r.gold)}G`);
+    for (const [id, n] of r.items ?? []) {
+      const d = getDef(ITEM_DB, id);
+      parts.push(h('span', { style: `color:${RARITY_INFO[d.rarity].color}` }, `${d.name} x${n}`));
+    }
+    return h('div', { class: 'q-reward' }, '獎勵：', ...parts.flatMap((x, i) => (i ? ['、', x] : [x])));
+  }
+
+  private renderNpcDialog(): void {
+    const ch = this.player;
+    const day = questDay(Date.now());
+    const npc = this.dialogNpc;
+    const mine = [...QUEST_DB.values()].filter((q) => q.giver === npc);
+    const log = ch.data.quests;
+    const byStatus = (st: string) => mine.filter((q) => questStatus(ch, q, day) === st);
+    const card = (q: QuestDef, kind: 'ready' | 'available' | 'active') => h('div', { class: `quest-card ${kind}` },
+      h('div', { class: 'q-title' }, q.daily ? h('span', { class: 'q-daily' }, '每日') : '', q.name,
+        kind === 'ready' ? h('span', { class: 'q-badge' }, '可回報') : ''),
+      h('div', { class: 'q-story' }, q.story),
+      ...this.objectiveLines(q, log?.active.find((a) => a.id === q.id)?.progress),
+      this.rewardLine(q),
+      h('div', { class: 'actions' },
+        kind === 'ready' ? h('button', { class: 'btn btn-primary', onclick: () => this.cs.send({ t: 'questTurnIn', id: q.id }) }, '回報任務')
+          : kind === 'available' ? h('button', { class: 'btn btn-primary', onclick: () => this.cs.send({ t: 'questAccept', id: q.id }) }, '接受')
+            : h('span', { class: 'muted small' }, q.hint)));
+    const ready = byStatus('ready');
+    const avail = byStatus('available');
+    const active = byStatus('active');
+    const name = NPC_POSITIONS.find((n) => n.id === npc)?.name ?? '';
+    this.npcDialog.setTitle(name);
+    this.npcDialog.set(
+      h('div', { class: 'npc-greet' }, h('img', { class: 'npc-face', src: pixelIcon('help', 3) }),
+        h('div', {}, ready.length ? '做得好！來領取獎勵吧。' : avail.length ? '有些事想拜託你……' : active.length ? '任務進行得如何？' : '目前沒有新的委託，變強之後再來找我吧。')),
+      ...ready.map((q) => card(q, 'ready')),
+      ...avail.map((q) => card(q, 'available')),
+      ...active.map((q) => card(q, 'active')),
+      npc === 'guide' ? h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: () => this.help.show() }, '遊戲說明'), h('button', { class: 'btn', onclick: () => this.questsPanel.show() }, '任務日誌（L）')) : '',
+    );
+  }
+
+  private renderQuestLog(): void {
+    const ch = this.player;
+    const day = questDay(Date.now());
+    const log = ch.data.quests;
+    const active = (log?.active ?? []).map((a) => ({ a, def: QUEST_DB.get(a.id) })).filter((x) => x.def);
+    const available = [...QUEST_DB.values()].filter((q) => questStatus(ch, q, day) === 'available');
+    this.questsPanel.setTitle(`任務日誌　${active.length} / ${MAX_ACTIVE_QUESTS}`);
+    this.questsPanel.set(
+      h('h4', {}, '進行中'),
+      ...(active.length ? active.map(({ a, def }) => {
+        const st = questStatus(ch, def!, day);
+        return h('div', { class: `quest-card ${st}` },
+          h('div', { class: 'q-title' }, def!.daily ? h('span', { class: 'q-daily' }, '每日') : '', def!.name, st === 'ready' ? h('span', { class: 'q-badge' }, '可回報') : ''),
+          ...this.objectiveLines(def!, a.progress),
+          h('div', { class: 'muted small' }, st === 'ready' ? `回去找 ${NPC_POSITIONS.find((n) => n.id === def!.giver)?.name} 回報` : def!.hint),
+          this.rewardLine(def!),
+          h('div', { class: 'actions' }, h('button', { class: 'btn btn-small btn-danger', onclick: () => void ask(this.root, `確定要放棄「${escapeHtml(def!.name)}」嗎？進度會歸零。`, '放棄').then((ok) => ok && this.cs.send({ t: 'questAbandon', id: def!.id })) }, '放棄')));
+      }) : [h('div', { class: 'muted' }, '沒有進行中的任務。頭上有 ❕ 的 NPC 有新任務。')]),
+      h('h4', {}, '可以接的任務'),
+      ...(available.length ? available.map((q) => h('div', { class: 'quest-mini' },
+        q.daily ? h('span', { class: 'q-daily' }, '每日') : '', h('b', {}, q.name), h('span', { class: 'muted small' }, `　找 ${NPC_POSITIONS.find((n) => n.id === q.giver)?.name}`))) : [h('div', { class: 'muted' }, '目前沒有。')]),
+    );
+  }
+
+  /** 小地圖下方的任務追蹤（最多 4 個） */
+  private renderTracker(): void {
+    const ch = this.player;
+    const day = questDay(Date.now());
+    const active = (ch.data.quests?.active ?? []).map((a) => ({ a, def: QUEST_DB.get(a.id) })).filter((x) => x.def).slice(0, 4);
+    const next = active.length ? undefined : [...QUEST_DB.values()].find((q) => !q.daily && questStatus(ch, q, day) === 'available');
+    this.tracker.style.display = active.length || next ? 'block' : 'none';
+    this.tracker.replaceChildren(
+      h('div', { class: 'tracker-title', onclick: () => this.toggle(this.questsPanel) }, '任務（L）'),
+      ...active.map(({ a, def }) => {
+        const ready = questStatus(ch, def!, day) === 'ready';
+        return h('div', { class: `tracker-q${ready ? ' ready' : ''}` }, h('div', { class: 'tracker-name' }, ready ? `✔ ${def!.name}` : def!.name),
+          ...(ready ? [h('div', { class: 'q-obj small' }, `回報給 ${NPC_POSITIONS.find((n) => n.id === def!.giver)?.name}`)] : this.objectiveLines(def!, a.progress)));
+      }),
+      next ? h('div', { class: 'tracker-q' }, h('div', { class: 'tracker-name' }, `❕ ${next.name}`), h('div', { class: 'q-obj small' }, `找 ${NPC_POSITIONS.find((n) => n.id === next.giver)?.name} 接任務`)) : '',
+    );
   }
 
   private renderShop(): void {

@@ -29,6 +29,8 @@ export interface CharacterData {
   buffs?: { id: string; level: number; until: number }[];
   /** 倉庫（城鎮倉庫管理員 / 家園管家）：格數多、不計負重 */
   storage?: InventoryData;
+  /** 任務進度（見 core/quests.ts） */
+  quests?: { active: { id: string; progress: number[] }[]; done: string[]; dailyDone: Record<string, number> };
 }
 
 export const STORAGE_CAPACITY = 300;

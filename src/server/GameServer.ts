@@ -28,6 +28,8 @@ import { homesteadLayout, MVP_LOCATION, NPC_POSITIONS, worldLayout, ZONE_NAMES, 
 import { BOT_NAMES, MarketBots } from './marketBots';
 import { ACHIEVEMENT_DB } from '../shared/achievements';
 import { SKILL_DB, type SkillDef } from '../data/skills';
+import { QUEST_DB } from '../data/quests';
+import { abandonQuest, acceptQuest, questDay, questEvent, questStatus, turnInQuest, type QuestEvent } from '../core/quests';
 
 // ------------------------------------------------------------ 介面
 
@@ -196,7 +198,7 @@ const EQUIP_SLOTS: readonly string[] = ['weapon', 'armor', 'helm', 'shield', 'bo
 
 const TRADE_BLOCKED = new Set<ClientMsg['t']>([
   'useItem', 'equip', 'unequip', 'enchant', 'compound', 'discard', 'craft', 'upgradeHome', 'upgradeStation',
-  'npcBuy', 'npcSell', 'marketList', 'marketBuy', 'marketCancel', 'storageDeposit', 'storageWithdraw',
+  'npcBuy', 'npcSell', 'marketList', 'marketBuy', 'marketCancel', 'storageDeposit', 'storageWithdraw', 'questTurnIn',
 ]);
 
 export class GameServer {
@@ -500,6 +502,7 @@ export class GameServer {
     p.conn.send({ t: 'zone', zone: zone.kind, owner: zone.owner, homestead: zone.home ? structuredClone(zone.home.data) : undefined });
     if (zone.kind === 'frost') this.achieve(p, 'FROST_ARRIVAL');
     if (zone.kind === 'ember') this.achieve(p, 'EMBER_ARRIVAL');
+    this.questNotify(p, { kind: 'visit', zone: zone.kind });
     zone.nextSnap = 0;
   }
 
@@ -602,6 +605,11 @@ export class GameServer {
         this.markSelf(p);
         return;
       }
+      case 'questAccept':
+      case 'questTurnIn':
+      case 'questAbandon':
+        this.questAction(p, msg);
+        return;
       case 'learnSkill': {
         const r = ch.learnSkill(String(msg.skill));
         if (r.ok) this.log(p, `學會了 ${SKILL_DB.get(msg.skill)!.name} Lv ${ch.skillLevel(msg.skill)}`, '#9fe0ff');
@@ -854,6 +862,7 @@ export class GameServer {
               this.sendMarket(p);
             }
             p.conn.send({ t: 'open', kind: 'npc', id: npc.id });
+            this.questNotify(p, { kind: 'talk', npc: npc.id });
           }
           break;
         }
@@ -1072,20 +1081,14 @@ export class GameServer {
       pl.ch.data.restedExp = left;
       const be = capped + rested;
       const je = Math.max(1, Math.floor(Math.min(m.def.jobExp * mod * share, (m.def.jobExp / Math.max(1, m.def.baseExp)) * capped)));
-      const lv = addExp(prog, be, je);
       this.achieve(pl, 'FIRST_BLOOD');
       if (m.def.id === 'bone_lich') this.achieve(pl, 'MVP_LICH');
       if (m.def.id === 'frost_queen') this.achieve(pl, 'MVP_QUEEN');
       if (m.def.id === 'ember_lord') this.achieve(pl, 'MVP_EMBER_LORD');
       this.log(pl, `擊敗 ${m.def.name}，獲得 Base EXP ${be}${rested ? `（休息加成 +${rested}）` : ''}${capped < raw ? '（已達單次上限）' : ''}、Job EXP ${je}`, '#bcd');
-      if (lv.baseLevelsGained) {
-        const d = pl.ch.derived();
-        pl.ch.data.hp = d.maxHp;
-        pl.ch.data.sp = d.maxSp;
-        this.announce(pl, `等級提升！Base Lv ${pl.ch.progression.baseLevel}`, '#ffe680');
-        this.zoneFx(z, { kind: 'levelup', x: pl.x, y: 2.4, z: pl.z, text: 'LEVEL UP!', color: '#ffe680', target: pl.id });
-      }
-      if (lv.jobLevelsGained) this.log(pl, `Job Lv 提升至 ${pl.ch.progression.jobLevel}，獲得技能點（按 K 開啟技能視窗）${pl.ch.canChangeJob() ? '。可以轉職了！按 S 開啟角色視窗' : ''}`, '#ffe680');
+      this.giveExp(pl, be, je);
+      // 分到經驗的人（含隊友）都算擊殺
+      this.questNotify(pl, { kind: 'kill', monster: m.def.id });
       this.markSelf(pl);
     }
     m.damageBy.clear();
@@ -1227,6 +1230,67 @@ export class GameServer {
     }
   }
 
+  /** 給經驗並處理升級（打怪與任務獎勵共用） */
+  private giveExp(pl: PlayerEnt, be: number, je: number): void {
+    const lv = addExp(pl.ch.progression, be, je);
+    if (lv.baseLevelsGained) {
+      const d = pl.ch.derived();
+      pl.ch.data.hp = d.maxHp;
+      pl.ch.data.sp = d.maxSp;
+      this.announce(pl, `等級提升！Base Lv ${pl.ch.progression.baseLevel}`, '#ffe680');
+      if (pl.zone) this.zoneFx(pl.zone, { kind: 'levelup', x: pl.x, y: 2.4, z: pl.z, text: 'LEVEL UP!', color: '#ffe680', target: pl.id });
+    }
+    if (lv.jobLevelsGained) this.log(pl, `Job Lv 提升至 ${pl.ch.progression.jobLevel}，獲得技能點（按 K 開啟技能視窗）${pl.ch.canChangeJob() ? '。可以轉職了！按 S 開啟角色視窗' : ''}`, '#ffe680');
+    this.markSelf(pl);
+  }
+
+  // ============================================================ 任務
+
+  private questNotify(p: PlayerEnt, ev: QuestEvent): void {
+    const changes = questEvent(p.ch, ev);
+    for (const c of changes) {
+      const done = c.have >= c.need;
+      const ready = questStatus(p.ch, c.def, questDay(this.now())) === 'ready';
+      this.log(p, `任務「${c.def.name}」${c.need > 1 ? `：${c.have} / ${c.need}` : '目標達成'}${ready ? '　✔ 可以回報了！' : ''}`, done ? '#9fffb0' : '#9fe0ff');
+      if (ready) p.conn.send({ t: 'sfx', name: 'quest' });
+    }
+    if (changes.length) this.markSelf(p);
+  }
+
+  private questAction(p: PlayerEnt, msg: Extract<ClientMsg, { t: 'questAccept' | 'questTurnIn' | 'questAbandon' }>): void {
+    const def = typeof msg.id === 'string' ? QUEST_DB.get(msg.id) : undefined;
+    if (!def) return;
+    const day = questDay(this.now());
+    if (msg.t === 'questAbandon') {
+      if (abandonQuest(p.ch, def.id)) this.log(p, `放棄了任務「${def.name}」。`, '#fc8');
+      this.markSelf(p);
+      return;
+    }
+    // 接任務與回報都要站在委託人旁邊（放棄不用）
+    if (!this.nearNpc(p, def.giver)) return;
+    if (msg.t === 'questAccept') {
+      const r = acceptQuest(p.ch, def.id, day);
+      if (!r.ok) return this.log(p, r.reason!, '#f99');
+      this.log(p, `接受任務「${def.name}」：${def.hint}`, '#9fe0ff');
+      // 狀態型目標（收集、職業）可能一接就完成；對話目標如果委託人就是對象也立即完成
+      this.questNotify(p, { kind: 'talk', npc: def.giver });
+      this.markSelf(p);
+      return;
+    }
+    const r = turnInQuest(p.ch, def.id, day, ITEM_DB, this.uids, this.now());
+    if (!r.ok) return this.log(p, r.reason!, '#f99');
+    const rw = r.reward!;
+    const parts = [rw.gold ? `${rw.gold.toLocaleString()}G` : '', ...(rw.items ?? []).map(([id, n]) => `${getDef(ITEM_DB, id).name} x${n}`)].filter(Boolean);
+    this.announce(p, `完成任務「${def.name}」！${parts.length ? `獲得 ${parts.join('、')}` : ''}`, '#ffd24a');
+    p.conn.send({ t: 'sfx', name: 'quest' });
+    if (rw.baseExp || rw.jobExp) {
+      this.log(p, `任務經驗：Base EXP ${rw.baseExp ?? 0}、Job EXP ${rw.jobExp ?? 0}`, '#bcd');
+      this.giveExp(p, rw.baseExp ?? 0, rw.jobExp ?? 0);
+    }
+    this.audit('quest_done', p.name, { id: def.id, reward: rw });
+    this.markSelf(p);
+  }
+
   // ============================================================ 家園
 
   private doGather(p: PlayerEnt, z: Zone, nodeIndex: number, now: number): boolean {
@@ -1288,6 +1352,7 @@ export class GameServer {
       else fail++;
       if (res.levelUps) this.announce(p, '生活技能等級提升！', '#9fffb0');
     }
+    if (ok) this.questNotify(p, { kind: 'craft', recipe: r.id, count: ok });
     if (ok + fail > 0) this.log(p, `製作 ${out.name}：成功 ${ok} 次${fail ? `、失敗 ${fail} 次（材料已消耗）` : ''}`, fail && !ok ? '#f99' : RARITY_INFO[out.rarity].color);
     this.markSelf(p);
   }

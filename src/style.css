@@ -167,6 +167,29 @@ h4::after { content: ''; flex: 1; height: 2px; background: linear-gradient(90deg
 .minimap-zone { text-align: center; color: var(--gold-hi); margin-bottom: 4px; text-shadow: 1px 1px 0 #000; }
 .minimap-canvas { display: block; width: 180px; height: 180px; border: 2px solid #000; box-shadow: 0 0 0 1px var(--gold-lo); border-radius: 50%; image-rendering: pixelated; }
 
+/* ---------- 任務 ---------- */
+.hud-tracker { position: fixed; right: 12px; top: 236px; width: 192px; padding: 6px 8px; font-size: 12px; line-height: 1.5; }
+.tracker-title { color: var(--gold); cursor: pointer; border-bottom: 1px solid var(--line); margin-bottom: 3px; }
+.tracker-title:hover { color: var(--gold-hi); }
+.tracker-q { margin: 4px 0; }
+.tracker-name { color: var(--ink); text-shadow: 1px 1px 0 #000; }
+.tracker-q.ready .tracker-name { color: #9fffb0; }
+.q-obj { color: var(--ink-dim); padding-left: 4px; }
+.q-obj.done { color: var(--ok); }
+.q-count { color: var(--gold-hi); }
+.quest-card { background: var(--slate-3); border: 2px solid #000; box-shadow: 0 0 0 1px var(--line); padding: 8px 10px; margin: 6px 0; line-height: 1.6; }
+.quest-card.ready { box-shadow: 0 0 0 1px var(--ok), 0 0 8px rgba(143, 224, 122, 0.3); }
+.quest-card.available { box-shadow: 0 0 0 1px var(--gold-lo); }
+.quest-card .actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
+.q-title { color: var(--gold-hi); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.q-story { color: var(--ink-dim); margin: 4px 0; }
+.q-reward { margin-top: 4px; color: var(--ink-dim); }
+.q-badge { margin-left: auto; font-size: 12px; color: #0b0a10; background: var(--ok); padding: 0 5px; }
+.q-daily { font-size: 12px; color: #0b0a10; background: #9fe0ff; padding: 0 4px; }
+.quest-mini { padding: 3px 6px; margin: 2px 0; background: rgba(0, 0, 0, 0.25); display: flex; align-items: center; gap: 6px; }
+.npc-greet { display: flex; gap: 10px; align-items: center; padding: 8px; background: rgba(0, 0, 0, 0.3); border-left: 3px solid var(--gold); margin-bottom: 6px; }
+.npc-face { width: 36px; height: 36px; }
+
 /* ---------- 訊息框 ---------- */
 .hud-logbox { position: fixed; left: 12px; bottom: 12px; width: 420px; padding: 6px 8px 8px; }
 .logbox-title { color: var(--gold); font-size: 12px; padding-bottom: 3px; border-bottom: 1px solid var(--line); margin-bottom: 3px; }
