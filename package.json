@@ -1,0 +1,26 @@
+{
+  "name": "realm-of-embers",
+  "version": "0.1.0",
+  "private": true,
+  "description": "2.5D 經營 RPG — 打怪掉寶、交易、家園採礦伐木（致敬天堂 & RO 仙境傳說）",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "sim:drops": "vite-node tools/simulate-drops.ts"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.1",
+    "vite-node": "^6.0.0",
+    "vitest": "^5.0.2"
+  }
+}
