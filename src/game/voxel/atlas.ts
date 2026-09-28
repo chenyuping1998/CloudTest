@@ -18,6 +18,7 @@ const TILES: TileName[] = [
   'roof', 'stone_brick', 'glass', 'furnace_front', 'furnace_side', 'table_top', 'table_side',
   'iron_block', 'darkstone', 'portal', 'tallgrass', 'flower_red', 'flower_yellow',
   'mushroom_cap', 'mushroom_stem', 'moss_stone', 'bookshelf', 'hay', 'wool_white',
+  'snow_top', 'snow_side', 'ice', 'packed_ice', 'spruce_log', 'spruce_leaves', 'frozen_grass',
 ];
 
 type RGB = [number, number, number];
@@ -271,6 +272,37 @@ const P: Record<TileName, (p: Painter) => void> = {
     for (let y = 2; y < 16; y += 5) p.rect(0, y, 16, 1, '#9a6a1a');
   },
   wool_white: (p) => p.noise('#e8e8e8', 6),
+  snow_top: (p) => p.noise('#f2f6fa', 6, ['#e6edf5', '#ffffff', '#dfe8f2']),
+  snow_side: (p) => {
+    P.dirt(p);
+    for (let x = 0; x < TILE; x++) {
+      const depth = 3 + Math.floor(p.r() * 3);
+      for (let y = 0; y < depth; y++) p.set(x, y, hex(p.r() < 0.3 ? '#dfe8f2' : '#f2f6fa'));
+    }
+  },
+  ice: (p) => {
+    p.noise('#9cc8f0', 6);
+    for (let i = 0; i < 5; i++) {
+      const x0 = Math.floor(p.r() * 12);
+      const y0 = Math.floor(p.r() * 12);
+      for (let k = 0; k < 4; k++) p.set(x0 + k, y0 + k, hex('#e0f0ff'));
+    }
+  },
+  packed_ice: (p) => {
+    p.noise('#8ab4e0', 8);
+    for (let y = 0; y < TILE; y += 5) p.rect(0, y, 16, 1, '#b8d4f0');
+  },
+  spruce_log: (p) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+      const d = (p.r() - 0.5) * 12;
+      const c = hex(x % 3 === 0 ? '#2e2016' : '#3e2c1c');
+      p.set(x, y, [c[0] + d, c[1] + d, c[2] + d]);
+    }
+  },
+  spruce_leaves: (p) => {
+    p.noise('#2a4a32', 16, ['#1f3a26', '#35583c', '#e8f0f8']);
+  },
+  frozen_grass: (p) => p.noise('#8aa890', 12, ['#9ab8a0', '#e0e8ee', '#7a987f']),
 };
 
 let atlasTex: THREE.Texture | undefined;

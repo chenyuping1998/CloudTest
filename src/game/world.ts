@@ -12,11 +12,11 @@ import { ITEM_DB, MONSTER_DB, NODE_DB, STATION_NAMES } from '../data';
 import type { MonsterDef } from '../data/monsters';
 import type { ClassId } from '../data/classes';
 import type { ItemSnap, MonsterSnap, NodeSnap, PlayerSnap, ServerMsg } from '../net/protocol';
-import { fieldLayout, homesteadLayout, ZONE_SIZE, type MapLayout, type NpcId, type ZoneId } from '../shared/maps';
+import { homesteadLayout, worldLayout, ZONE_LEVELS, ZONE_NAMES, ZONE_SIZE, type MapLayout, type NpcId, type ZoneId } from '../shared/maps';
 import type { TileName } from '../shared/tiles';
 import { groundItemTexture } from './sprites';
 import {
-  animateRig, cloudMesh, fenceMesh, gravestone, houseMesh, monsterRig, npcRig, oreMesh, playerRig, portalMeshes, stationMesh, treeMesh,
+  animateRig, cloudMesh, spruceMesh, fenceMesh, gravestone, houseMesh, monsterRig, npcRig, oreMesh, playerRig, portalMeshes, stationMesh, treeMesh,
   type Rig,
 } from './voxel/models';
 import { Terrain } from './voxel/terrain';
@@ -119,6 +119,7 @@ export class World {
   private npcs: NpcView[] = [];
   private portalPanes: THREE.Mesh[] = [];
   private clouds: THREE.Mesh[] = [];
+  private snow?: THREE.Points;
   private occluders: THREE.Object3D[] = [];
   private time = 0;
   private camYaw = Math.PI / 4;
@@ -361,15 +362,15 @@ export class World {
   loadZone(zone: ZoneId, homeNodes: import('../core/homestead').NodeState[]): void {
     this.clearZone();
     this.zone = zone;
-    const layout = zone === 'field' ? fieldLayout() : homesteadLayout(homeNodes);
+    const layout = zone === 'homestead' ? homesteadLayout(homeNodes) : worldLayout(zone);
     this.layout = layout;
     this.scene.background = skyTexture(layout.sky.top, layout.sky.bottom);
-    this.scene.fog = new THREE.Fog(layout.sky.fog, zone === 'field' ? 55 : 45, zone === 'field' ? 110 : 90);
+    this.scene.fog = new THREE.Fog(layout.sky.fog, zone === 'homestead' ? 45 : zone === 'frost' ? 40 : 55, zone === 'homestead' ? 90 : zone === 'frost' ? 95 : 110);
     this.terrain = new Terrain(layout.grid);
     this.zoneRoot.add(this.terrain.build());
 
     for (const t of layout.trees) {
-      const mesh = treeMesh(t.leaves, t.trunk);
+      const mesh = t.spruce ? spruceMesh(t.trunk) : treeMesh(t.leaves, t.trunk);
       this.place(mesh, t.x, t.z);
       this.occluders.push(mesh);
     }
@@ -409,6 +410,21 @@ export class World {
       this.nodes.push(n);
       this.setNodeVisual(n, false);
     });
+    this.snow = undefined;
+    if (zone === 'frost') {
+      // 下雪：在相機周圍循環掉落的白色方塊粒子
+      const n = 1500;
+      const pos = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        pos[i * 3] = randRange(mathRng, -30, 30);
+        pos[i * 3 + 1] = randRange(mathRng, 0, 25);
+        pos[i * 3 + 2] = randRange(mathRng, -30, 30);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      this.snow = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.12, transparent: true, opacity: 0.9, depthWrite: false }));
+      this.zoneRoot.add(this.snow);
+    }
     for (let i = 0; i < 14; i++) {
       const c = cloudMesh(i * 97 + 13);
       c.position.set(randRange(mathRng, -layout.size, layout.size), 26 + Math.random() * 4, randRange(mathRng, -layout.size, layout.size));
@@ -581,6 +597,17 @@ export class World {
     for (const v of this.npcs) animate(v);
     for (const it of this.items.values()) it.sprite.position.y = it.pos.y + 0.1 + Math.sin(this.time * 3 + it.pos.x) * 0.08;
     for (const pane of this.portalPanes) (pane.material as THREE.MeshBasicMaterial).opacity = 0.65 + Math.sin(this.time * 3) * 0.15;
+    if (this.snow) {
+      const arr = this.snow.geometry.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < arr.count; i++) {
+        let y = arr.getY(i) - dt * 2.2;
+        if (y < 0) y += 25;
+        arr.setY(i, y);
+        arr.setX(i, arr.getX(i) + Math.sin(this.time + i) * dt * 0.3);
+      }
+      arr.needsUpdate = true;
+      this.snow.position.set(this.camTarget.x, this.camTarget.y, this.camTarget.z);
+    }
     for (const c of this.clouds) {
       c.position.x += dt * 0.6;
       if (c.position.x > ZONE_SIZE[this.zone]) c.position.x = -ZONE_SIZE[this.zone];
@@ -732,7 +759,10 @@ export class World {
     for (const n of this.npcs) out.push({ pos: above(n), text: n.name, color: '#9fe0ff', kind: 'npc' });
     if (this.layout) {
       for (const s of this.layout.stations) out.push({ pos: new THREE.Vector3(s.x + 0.5, this.groundY(s.x, s.z) + 1.7, s.z), text: `${STATION_NAMES[s.id]} Lv${this.cs.homestead.buildingLevel(s.id)}`, color: '#ffe0a0', kind: 'station' });
-      for (const p of this.layout.portals) out.push({ pos: new THREE.Vector3(p.x, this.groundY(p.x, p.z) + 5.6, p.z), text: p.to === 'homestead' ? '▶ 我的家園' : '▶ 晨曦平原', color: '#d9b0ff', kind: 'npc' });
+      for (const p of this.layout.portals) {
+        const name = p.to === 'homestead' ? '我的家園' : `${ZONE_NAMES[p.to]}${ZONE_LEVELS[p.to] ? `（${ZONE_LEVELS[p.to]}）` : ''}`;
+        out.push({ pos: new THREE.Vector3(p.x, this.groundY(p.x, p.z) + 5.6, p.z), text: `▶ ${name}`, color: '#d9b0ff', kind: 'npc' });
+      }
     }
     if (this.hovered?.type === 'node') {
       const n = this.nodes[this.hovered.i];
@@ -754,13 +784,14 @@ export class World {
     const TILE_COLOR: Partial<Record<TileName, string>> = {
       grass_top: '#5f9a3a', path: '#a88a58', cobble: '#8a8a8a', sand: '#d8cb96', gravel: '#857f7a', stone: '#7d7d7d',
       darkstone: '#3a2f4a', stone_brick: '#4a4a4a', dirt: '#7a5234', hay: '#c8a440', leaves: '#2f6a20',
+      snow_top: '#e8eef4', ice: '#9cc8f0', packed_ice: '#7aa4d0', frozen_grass: '#8aa890',
     };
     const grid = this.layout?.grid;
     if (!grid) return { size: 1, colors: ['#000'], zone: this.zone };
     return {
       size: grid.size,
       zone: this.zone,
-      colors: grid.cols.map((c) => (c.water ? '#3a6fd8' : c.blocked && c.top === 'grass_top' ? '#2f6a20' : TILE_COLOR[c.top] ?? '#5f9a3a')),
+      colors: grid.cols.map((c) => (c.water ? '#3a6fd8' : c.blocked && (c.top === 'grass_top' || c.top === 'snow_top') ? (c.top === 'snow_top' ? '#2a4a32' : '#2f6a20') : TILE_COLOR[c.top] ?? '#5f9a3a')),
     };
   }
 

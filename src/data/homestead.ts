@@ -115,6 +115,9 @@ export const RECIPES: Recipe[] = [
   r('craft_mithril_pickaxe', 'anvil', 'smithing', 22, [['mithril_ingot', 5], ['maple_plank', 3]], ['mithril_pickaxe', 1], 0.8, 90, { stationLevel: 2 }),
   r('craft_mithril_axe', 'anvil', 'smithing', 22, [['mithril_ingot', 5], ['maple_plank', 3]], ['mithril_axe', 1], 0.8, 90, { stationLevel: 2 }),
   r('craft_mithril_sword', 'anvil', 'smithing', 25, [['mithril_ingot', 10], ['maple_plank', 3], ['rune_fragment', 2]], ['mithril_sword', 1], 0.55, 200, { gold: 3000, stationLevel: 2 }),
+  r('craft_frost_greatsword', 'anvil', 'smithing', 35, [['mithril_ingot', 8], ['frost_essence', 2], ['ice_crystal', 10]], ['frost_greatsword', 1], 0.5, 400, { gold: 12000, stationLevel: 3 }),
+  r('craft_frost_plate', 'anvil', 'smithing', 40, [['mithril_ingot', 12], ['yeti_fur', 20], ['giant_heart', 2]], ['frost_plate', 1], 0.4, 600, { gold: 20000, stationLevel: 3 }),
+  r('craft_snow_boots', 'workbench', 'carpentry', 25, [['snow_pelt', 15], ['dark_steel', 3]], ['snow_boots', 1], 0.6, 200, { gold: 3000, stationLevel: 2 }),
   r('craft_mithril_armor', 'anvil', 'smithing', 30, [['mithril_ingot', 15], ['golem_core', 3]], ['mithril_armor', 1], 0.45, 300, { gold: 8000, stationLevel: 3 }),
   // 鍊金台
   r('brew_orange', 'alchemy', 'alchemy', 1, [['red_potion', 2], ['spore', 3]], ['orange_potion', 1], 0.9, 6),

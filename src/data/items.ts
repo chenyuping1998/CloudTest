@@ -37,6 +37,13 @@ export const ITEMS: ItemDef[] = [
   mat('lich_ash', '巫妖之塵', R.Rare, 800, 1, '骸骨巫妖王消散後留下的魔力塵埃。'),
   mat('dark_steel', '暗鋼碎片', R.Uncommon, 120, 2, '暗影騎士盔甲的碎片，可重新熔鑄。'),
   mat('magma_core', '熔岩核心', R.Uncommon, 180, 4, '仍在發燙的核心，蘊含大量火元素。'),
+  // ---- 霜語山脈 ----
+  mat('snow_pelt', '雪原狼毛皮', R.Common, 60, 2, '雪白厚實的毛皮，是防寒裝備的材料。'),
+  mat('ice_crystal', '冰晶', R.Uncommon, 150, 1, '永不融化的冰之結晶。'),
+  mat('yeti_fur', '雪人長毛', R.Common, 80, 2, '又長又軟的白毛。'),
+  mat('frost_essence', '霜之精髓', R.Rare, 600, 1, '凝結的寒氣，鍛造冰霜武器的關鍵材料。'),
+  mat('giant_heart', '巨人之心', R.Uncommon, 400, 6, '冰霜巨人體內緩慢跳動的冰核。'),
+  mat('queen_shard', '女王的冰晶碎片', R.Rare, 2500, 1, '冰霜女王消散後留下的碎片。'),
   // ---- 家園原料 ----
   mat('oak_log', '橡木原木', R.Common, 4, 3, '家園砍伐的橡木。'),
   mat('maple_log', '楓木原木', R.Common, 12, 3, '質地細密的楓木。'),
@@ -79,6 +86,9 @@ export const ITEMS: ItemDef[] = [
   equip('weapon', 'weapon', { id: 'iron_sword', name: '鐵製長劍', rarity: R.Uncommon, bind: 'tradeable', weight: 80, sellPrice: 380, atk: 55, levelReq: 15, cardSlots: 1, desc: '家園鍛造的長劍，會刻上製作者的名字。' }),
   equip('weapon', 'weapon', { id: 'mithril_sword', name: '秘銀長劍', rarity: R.Rare, bind: 'tradeable', weight: 60, sellPrice: 2400, atk: 95, levelReq: 30, cardSlots: 1, desc: '以秘銀鍛造的名劍。' }),
   equip('weapon', 'weapon', { id: 'flame_blade', name: '灼炎魔劍', rarity: R.Epic, bind: 'tradeable', weight: 90, sellPrice: 8000, atk: 130, levelReq: 35, cardSlots: 1, bonus: { str: 3 }, desc: '劍身永遠燃燒著火焰。' }),
+  equip('weapon', 'weapon', { id: 'frost_greatsword', name: '寒鐵大劍', rarity: R.Rare, bind: 'tradeable', weight: 120, sellPrice: 9000, atk: 150, levelReq: 48, cardSlots: 1, bonus: { str: 3 }, desc: '以霜之精髓淬鍊的大劍，可在家園鍛造。' }),
+  equip('weapon', 'weapon', { id: 'crystal_staff', name: '冰晶法杖', rarity: R.Rare, bind: 'tradeable', weight: 50, sellPrice: 8500, atk: 40, matk: 180, levelReq: 50, cardSlots: 1, bonus: { int: 4 }, desc: '杖頭嵌著巨大的冰晶。' }),
+  equip('weapon', 'weapon', { id: 'permafrost_blade', name: '永凍之刃', rarity: R.Mythic, bind: 'bindOnEquip', weight: 100, sellPrice: 300000, atk: 260, levelReq: 70, cardSlots: 2, bonus: { str: 8, agi: 6 }, desc: '冰霜女王的佩劍，劍身散發永不消散的寒氣。裝備後綁定。' }),
   equip('weapon', 'weapon', { id: 'frost_whisper', name: '霜語', rarity: R.Legendary, bind: 'bindOnEquip', weight: 90, sellPrice: 40000, atk: 175, levelReq: 40, cardSlots: 2, bonus: { str: 5, agi: 5 }, desc: '巫妖王生前的佩劍，裝備後綁定。' }),
   equip('weapon', 'weapon', { id: 'lich_scepter', name: '巫妖王權杖', rarity: R.Mythic, bind: 'bindOnEquip', weight: 60, sellPrice: 150000, atk: 40, matk: 220, levelReq: 45, cardSlots: 2, bonus: { int: 10, dex: 5 }, desc: '伺服器中屈指可數的神器，裝備後綁定。' }),
 
@@ -87,6 +97,11 @@ export const ITEMS: ItemDef[] = [
   equip('armor', 'armor', { id: 'leather_armor', name: '皮甲', rarity: R.Uncommon, bind: 'tradeable', weight: 60, sellPrice: 180, def: 14, levelReq: 8, cardSlots: 1, desc: '輕便的皮甲。' }),
   equip('armor', 'armor', { id: 'chainmail', name: '鎖子甲', rarity: R.Rare, bind: 'tradeable', weight: 150, sellPrice: 900, def: 28, levelReq: 20, cardSlots: 1, desc: '鐵環編織的鎧甲。' }),
   equip('armor', 'armor', { id: 'mithril_armor', name: '秘銀鎧甲', rarity: R.Epic, bind: 'tradeable', weight: 100, sellPrice: 6000, def: 45, levelReq: 30, cardSlots: 1, desc: '只能由高階工匠鍛造的鎧甲。' }),
+  equip('armor', 'armor', { id: 'frost_plate', name: '冰霜鎧甲', rarity: R.Epic, bind: 'tradeable', weight: 160, sellPrice: 15000, def: 62, levelReq: 52, cardSlots: 1, bonus: { vit: 3 }, desc: '只能由頂尖工匠鍛造，覆蓋著一層薄冰。' }),
+  equip('armor', 'helm', { id: 'frost_crown', name: '霜語之冠', rarity: R.Rare, bind: 'tradeable', weight: 30, sellPrice: 5000, def: 14, levelReq: 55, cardSlots: 1, bonus: { int: 2, dex: 2 }, desc: '冰晶雕成的頭冠。' }),
+  equip('armor', 'boots', { id: 'snow_boots', name: '雪地靴', rarity: R.Rare, bind: 'tradeable', weight: 30, sellPrice: 4000, def: 10, levelReq: 50, bonus: { agi: 4 }, desc: '在雪地上也能健步如飛。' }),
+  equip('accessory', 'accessory', { id: 'giant_ring', name: '巨人指環', rarity: R.Epic, bind: 'tradeable', weight: 10, sellPrice: 12000, bonus: { vit: 6, str: 3 }, levelReq: 60, desc: '冰霜巨人手指上的指環，對人類來說像手鐲。' }),
+  equip('accessory', 'accessory', { id: 'queen_tear', name: '女王之淚', rarity: R.Legendary, bind: 'bindOnEquip', weight: 5, sellPrice: 60000, bonus: { int: 8, luk: 5 }, dropBonusPct: 5, levelReq: 65, desc: '冰霜女王唯一的眼淚。裝備後綁定。' }),
   equip('armor', 'helm', { id: 'leather_cap', name: '皮帽', rarity: R.Common, bind: 'tradeable', weight: 10, sellPrice: 20, def: 3, desc: '簡單的皮帽。' }),
   equip('armor', 'helm', { id: 'iron_helm', name: '鐵盔', rarity: R.Uncommon, bind: 'tradeable', weight: 40, sellPrice: 300, def: 8, levelReq: 12, cardSlots: 1, desc: '結實的鐵盔。' }),
   equip('armor', 'shield', { id: 'buckler', name: '圓盾', rarity: R.Uncommon, bind: 'tradeable', weight: 60, sellPrice: 200, def: 8, levelReq: 8, cardSlots: 1, desc: '小型圓盾。' }),
@@ -104,6 +119,12 @@ export const ITEMS: ItemDef[] = [
   card('card_golem', '岩石魔像卡片', R.Epic, 'armor', { def: 5, bonus: { vit: 4 } }, '鎧甲卡：VIT +4、DEF +5。'),
   card('card_knight', '暗影騎士卡片', R.Epic, 'weapon', { atk: 10, bonus: { str: 2 } }, '武器卡：ATK +10、STR +2。'),
   card('card_magma', '熔岩巨像卡片', R.Epic, 'armor', { def: 6, bonus: { vit: 3 } }, '鎧甲卡：VIT +3、DEF +6。'),
+  card('card_snow_wolf', '雪原狼卡片', R.Epic, 'weapon', { atk: 12, bonus: { agi: 2 } }, '武器卡：ATK +12、AGI +2。'),
+  card('card_ice_slime', '冰晶史萊姆卡片', R.Epic, 'armor', { def: 4, bonus: { int: 3 } }, '鎧甲卡：INT +3、DEF +4。'),
+  card('card_yeti', '雪人卡片', R.Epic, 'armor', { bonus: { vit: 6 } }, '鎧甲卡：VIT +6。'),
+  card('card_frost_skeleton', '霜寒骷髏卡片', R.Epic, 'weapon', { atk: 22 }, '武器卡：ATK +22。'),
+  card('card_frost_giant', '冰霜巨人卡片', R.Epic, 'shield', { def: 8, bonus: { vit: 2 } }, '盾牌卡：DEF +8、VIT +2。'),
+  card('card_frost_queen', '冰霜女王卡片', R.Mythic, 'accessory', { bonus: { int: 6, dex: 6 }, dropBonusPct: 5 }, 'MVP 卡：INT +6、DEX +6、掉寶率 +5%。'),
   card('card_lich', '骸骨巫妖王卡片', R.Mythic, 'accessory', { bonus: { int: 5, dex: 5 }, dropBonusPct: 5 }, 'MVP 卡：INT +5、DEX +5、掉寶率 +5%。'),
 
   // ---- 工具 ----

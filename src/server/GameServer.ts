@@ -23,7 +23,7 @@ import {
 import type { MonsterDef } from '../data/monsters';
 import type { ClientMsg, MarketView, PartyShareMode, PartyView, ServerMsg, TradeOfferView } from '../net/protocol';
 import { PROTOCOL_VERSION } from '../net/protocol';
-import { FIELD_SPAWNS, fieldLayout, homesteadLayout, NPC_POSITIONS, type MapLayout, type ZoneId } from '../shared/maps';
+import { homesteadLayout, MVP_LOCATION, NPC_POSITIONS, worldLayout, ZONE_NAMES, ZONE_SPAWNS, type MapLayout, type WorldZoneId, type ZoneId } from '../shared/maps';
 import { BOT_NAMES, MarketBots } from './marketBots';
 
 // ------------------------------------------------------------ 介面
@@ -340,11 +340,16 @@ export class GameServer {
   // ============================================================ 地圖
 
   private fieldZone(): Zone {
-    let z = this.zones.get('field');
+    return this.worldZone('field');
+  }
+
+  /** 野外地圖（所有玩家共用，一直存在） */
+  private worldZone(id: WorldZoneId): Zone {
+    let z = this.zones.get(id);
     if (!z) {
-      z = { key: 'field', kind: 'field', owner: '', layout: fieldLayout(), players: new Set(), monsters: [], items: [], nextSnap: 0 };
-      for (const [id, count, [cx, cz], r] of FIELD_SPAWNS) {
-        const def = MONSTER_DB.get(id)!;
+      z = { key: id, kind: id, owner: '', layout: worldLayout(id), players: new Set(), monsters: [], items: [], nextSnap: 0 };
+      for (const [mid, count, [cx, cz], r] of ZONE_SPAWNS[id]) {
+        const def = MONSTER_DB.get(mid)!;
         for (let i = 0; i < count; i++) {
           const m: MonsterEnt = {
             id: this.nextId++, def, hp: def.hp, cx, cz, radius: r, x: cx, z: cz, yaw: 0, moving: false, swing: 0,
@@ -354,9 +359,14 @@ export class GameServer {
           z.monsters.push(m);
         }
       }
-      this.zones.set('field', z);
+      this.zones.set(id, z);
     }
     return z;
+  }
+
+  private zoneLabel(z: Zone | undefined): string {
+    if (!z) return '';
+    return z.kind === 'homestead' ? `${z.owner} 的家園` : ZONE_NAMES[z.kind];
   }
 
   private homeZone(owner: PlayerEnt): Zone {
@@ -369,12 +379,22 @@ export class GameServer {
     return z;
   }
 
-  private enterZone(p: PlayerEnt, zone: Zone): void {
+  private enterZone(p: PlayerEnt, zone: Zone, from?: ZoneId): void {
     this.leaveZone(p);
     p.zone = zone;
     zone.players.add(p);
-    p.x = zone.layout.spawn.x;
-    p.z = zone.layout.spawn.z;
+    // 從傳送門過來時，出現在通往原地圖的傳送門旁邊
+    const back = from ? zone.layout.portals.find((pt) => pt.to === from) : undefined;
+    if (back) {
+      const dx = zone.layout.spawn.x - back.x;
+      const dz = zone.layout.spawn.z - back.z;
+      const d = Math.hypot(dx, dz) || 1;
+      p.x = back.x + (dx / d) * 2.5;
+      p.z = back.z + (dz / d) * 2.5;
+    } else {
+      p.x = zone.layout.spawn.x;
+      p.z = zone.layout.spawn.z;
+    }
     p.intent = undefined;
     p.conn.send({ t: 'zone', zone: zone.kind, owner: zone.owner, homestead: zone.home ? structuredClone(zone.home.data) : undefined });
     zone.nextSnap = 0;
@@ -709,8 +729,9 @@ export class GameServer {
       for (const portal of z.layout.portals) {
         if (Math.hypot(portal.x - p.x, portal.z - p.z) < 1.1) {
           this.cancelTrade(p, '離開了地圖，交易取消');
-          this.log(p, portal.to === 'homestead' ? '進入了你的家園。' : '回到了晨曦平原。', '#c99aff');
-          this.enterZone(p, portal.to === 'homestead' ? this.homeZone(p) : this.fieldZone());
+          const dest = portal.to === 'homestead' ? this.homeZone(p) : this.worldZone(portal.to);
+          this.log(p, `進入了${this.zoneLabel(dest) === `${p.name} 的家園` ? '你的家園' : this.zoneLabel(dest)}。`, '#c99aff');
+          this.enterZone(p, dest, z.kind);
           return;
         }
       }
@@ -871,7 +892,7 @@ export class GameServer {
           m.hp = m.def.hp;
           m.target = undefined;
           this.placeRandom(z, m);
-          if (m.def.mvp) this.broadcastAnnounce(`${m.def.name} 出現在晨曦平原的東南方！`, '#ff6b6b');
+          if (m.def.mvp) this.broadcastAnnounce(`${m.def.name} 出現在${MVP_LOCATION[m.def.id] ?? ZONE_NAMES[z.kind]}！`, '#ff6b6b');
         }
         continue;
       }
@@ -1301,7 +1322,7 @@ export class GameServer {
         const pl = this.byName.get(n)!;
         const d = pl.ch.derived();
         const inRange = pl === viewer || (pl.zone === viewer.zone && Math.hypot(pl.x - viewer.x, pl.z - viewer.z) <= PARTY_SHARE_DISTANCE);
-        return { name: n, level: pl.ch.progression.baseLevel, cls: pl.ch.data.classId, hp: pl.ch.data.hp, maxHp: d.maxHp, zone: pl.zone?.kind === 'homestead' ? `${pl.zone.owner} 的家園` : '晨曦平原', inRange };
+        return { name: n, level: pl.ch.progression.baseLevel, cls: pl.ch.data.classId, hp: pl.ch.data.hp, maxHp: d.maxHp, zone: this.zoneLabel(pl.zone), inRange };
       }),
     };
   }
@@ -1447,7 +1468,7 @@ export class GameServer {
     return { ch: p.ch, x: p.x, z: p.z, zone: p.zone?.key, setPos: (x, z) => { p.x = x; p.z = z; } };
   }
 
-  debugMonsters(): { id: number; def: string; x: number; z: number; hp: number; dead: boolean }[] {
-    return this.fieldZone().monsters.map((m) => ({ id: m.id, def: m.def.id, x: m.x, z: m.z, hp: m.hp, dead: m.dead }));
+  debugMonsters(zone: WorldZoneId = 'field'): { id: number; def: string; x: number; z: number; hp: number; dead: boolean }[] {
+    return this.worldZone(zone).monsters.map((m) => ({ id: m.id, def: m.def.id, x: m.x, z: m.z, hp: m.hp, dead: m.dead }));
   }
 }

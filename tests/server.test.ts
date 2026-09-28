@@ -306,3 +306,24 @@ describe('GameServer: party', () => {
     expect(conns[0].last('log')?.msg).toContain('最多');
   });
 });
+
+describe('GameServer: second map', () => {
+  it('walking into the field portal leads to the Frostwhisper Peaks and back, arriving at the portal', () => {
+    const s = setup();
+    const c = s.join('Explorer');
+    const dbg = s.server.debugPlayer('Explorer')!;
+    dbg.setPos(29.5, 8.5);
+    s.send(c, { t: 'move', x: 31.5, z: 8.5 });
+    s.advance(2);
+    expect(c.last('zone')?.zone).toBe('frost');
+    const inFrost = s.server.debugPlayer('Explorer')!;
+    expect(inFrost.zone).toBe('frost');
+    expect(Math.hypot(inFrost.x + 32, inFrost.z - 0.5)).toBeLessThan(4);
+    expect(s.server.debugMonsters('frost').some((m) => m.def === 'frost_queen')).toBe(true);
+    s.send(c, { t: 'move', x: -32, z: 0.5 });
+    s.advance(3);
+    expect(c.last('zone')?.zone).toBe('field');
+    const back = s.server.debugPlayer('Explorer')!;
+    expect(Math.hypot(back.x - 31.5, back.z - 8.5)).toBeLessThan(4);
+  });
+});

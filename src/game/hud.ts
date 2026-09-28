@@ -16,6 +16,7 @@ import { pixelIcon } from './pixelIcons';
 import { facePortrait } from './voxel/models';
 import { ask, bar, fmt, h, Panel } from './ui';
 import type { NpcId, World } from './world';
+import { ZONE_NAMES } from '../shared/maps';
 
 type InvFilter = 'all' | 'equip' | 'use' | 'mat' | 'etc';
 
@@ -434,7 +435,7 @@ export class Hud {
         g.fillRect(i % base.size, Math.floor(i / base.size), 1, 1);
       });
       this.minimapBase = { key, canvas: c, size: base.size };
-      this.minimapZone.textContent = base.zone === 'field' ? '晨曦平原' : `${this.cs.zoneOwner} 的家園`;
+      this.minimapZone.textContent = base.zone === 'homestead' ? `${this.cs.zoneOwner} 的家園` : ZONE_NAMES[base.zone];
     }
     const g = this.minimap.getContext('2d')!;
     const W = this.minimap.width;

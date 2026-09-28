@@ -409,7 +409,7 @@ export function monsterRig(m: MonsterDef): Rig {
       const rig = makeRig('hopper', 10 * PX * s * 1.3);
       const bob = new THREE.Group();
       bob.scale.setScalar(s * 1.3);
-      const core = part({ key: `${m.id}-core`, size: [6, 6, 6], base: '#e05a90', faces: { front: (g) => { g.rect(1, 1, 2, 2, '#2a1a2a'); g.rect(4, 1, 1, 1, '#2a1a2a'); g.px(3, 4, '#2a1a2a'); } } });
+      const core = part({ key: `${m.id}-core`, size: [6, 6, 6], base: m.id === 'ice_slime' ? '#3a8ad0' : '#e05a90', faces: { front: (g) => { g.rect(1, 1, 2, 2, '#2a1a2a'); g.rect(4, 1, 1, 1, '#2a1a2a'); g.px(3, 4, '#2a1a2a'); } } });
       core.position.y = 1 * PX;
       const shell = part({ key: `${m.id}-shell`, size: [10, 10, 10], base: m.look.color, transparent: 0.6, faces: { front: (g) => { g.rect(2, 3, 2, 2, '#3a1a2a'); g.rect(6, 3, 2, 2, '#3a1a2a'); g.rect(4, 7, 2, 1, '#3a1a2a'); } } });
       shell.castShadow = true;
@@ -470,6 +470,13 @@ export function monsterRig(m: MonsterDef): Rig {
       return rig;
     }
     case 'humanoid':
+      if (m.id === 'frost_skeleton') {
+        return humanoid({
+          key: m.id, skin: '#d8e4ee', hair: '#d8e4ee', eyes: '#6af0ff', shirt: '#2a5a9a', pants: '#1a3a6a', shoes: '#10203a', face: 'skull', thin: true, weapon: 'staff', robe: true,
+          hat: 'hood', hatColor: '#2a5a9a', scale: s,
+          shirtDetail: (g) => { g.rect(3, 0, 2, g.h, '#9ad8ff'); for (let y = 5; y < g.h; y += 6) g.rect(0, y, g.w, 1, '#1a3a6a'); },
+        });
+      }
       if (m.id === 'skeleton') {
         return humanoid({
           key: m.id, skin: '#d8d2bf', hair: '#d8d2bf', eyes: '#e03030', shirt: '#cfc8b4', pants: '#cfc8b4', shoes: '#b8b09a', face: 'skull', thin: true, weapon: 'sword', scale: s,
@@ -493,12 +500,18 @@ export function monsterRig(m: MonsterDef): Rig {
       body.scale.setScalar(s * 0.9);
       rig.yaw.add(body);
       const magma = m.id === 'magma_golem';
-      const stone = magma ? '#4a3430' : '#b0a898';
-      // 一般魔像長青苔，熔岩巨像是發光的裂縫
+      // 魔像系列共用骨架，依種類換「底色 / 紋路色 / 點綴色」
+      const palette: Record<string, [string, string, string]> = {
+        rock_golem: ['#b0a898', '#5a8a3a', '#6a6258'],
+        magma_golem: ['#4a3430', '#ff7a1a', '#ffc04a'],
+        yeti: ['#eef2f6', '#c8d4e0', '#ffffff'],
+        frost_giant: ['#8ab8e0', '#dff4ff', '#4a7ab0'],
+      };
+      const [stone, accentA, accentB] = palette[m.id] ?? palette.rock_golem;
+      // 一般魔像長青苔，熔岩巨像是發光的裂縫，雪人是毛，冰霜巨人是冰紋
       const moss = (g: PixelCanvas) => {
-        const accent = magma ? '#ff7a1a' : '#5a8a3a';
-        for (let i = 0; i < 10; i++) g.rect(Math.floor(g.rand() * g.w), Math.floor(g.rand() * g.h), magma ? 1 : 2, magma ? 2 : 1, accent);
-        for (let i = 0; i < 12; i++) g.px(Math.floor(g.rand() * g.w), Math.floor(g.rand() * g.h), magma ? '#ffc04a' : '#6a6258');
+        for (let i = 0; i < 10; i++) g.rect(Math.floor(g.rand() * g.w), Math.floor(g.rand() * g.h), magma ? 1 : 2, magma ? 2 : 1, accentA);
+        for (let i = 0; i < 12; i++) g.px(Math.floor(g.rand() * g.w), Math.floor(g.rand() * g.h), accentB);
       };
       for (const side of [-1, 1]) {
         const leg = pivotTop(part({ key: `${m.id}-leg`, size: [6, 10, 6], base: stone, faces: { front: moss, side: moss } }), 10);
@@ -518,23 +531,31 @@ export function monsterRig(m: MonsterDef): Rig {
       }
       const head = new THREE.Group();
       head.position.y = 24 * PX;
-      head.add(part({ key: `${m.id}-head`, size: [8, 8, 8], base: stone, faces: { front: (g) => { g.rect(1, 3, 2, 1, '#ffd24a'); g.rect(5, 3, 2, 1, '#ffd24a'); g.rect(3, 4, 2, 3, magma ? '#ff7a1a' : '#6a6258'); } } }));
+      const eye = m.id === 'yeti' ? '#3a6ad0' : m.id === 'frost_giant' ? '#e0ffff' : '#ffd24a';
+      head.add(part({ key: `${m.id}-head`, size: [8, 8, 8], base: stone, faces: { front: (g) => { g.rect(1, 3, 2, 1, eye); g.rect(5, 3, 2, 1, eye); g.rect(3, 4, 2, 3, m.id === 'yeti' ? '#2a2a3a' : magma ? '#ff7a1a' : '#6a6258'); } } }));
       body.add(head);
       rig.head = head;
-      if (magma) {
-        const glow = new THREE.PointLight(0xff7a1a, 2, 6);
+      if (magma || m.id === 'frost_giant') {
+        const glow = new THREE.PointLight(magma ? 0xff7a1a : 0x9adfff, 2, 6);
         glow.position.y = 1.5;
         rig.root.add(glow);
       }
       return rig;
     }
     case 'lich': {
-      const rig = humanoid({
-        key: m.id, skin: '#e8e2cf', hair: '#e8e2cf', eyes: '#7fff3a', shirt: '#4a2f8f', pants: '#2a1a4a', shoes: '#1a1a1a', face: 'skull', robe: true,
-        hat: 'crown', weapon: 'staff', scale: s * 0.8,
-        shirtDetail: (g) => { g.rect(3, 0, 2, g.h, '#d9b44a'); for (let y = 4; y < g.h; y += 5) g.rect(0, y, g.w, 1, '#2a1a5a'); },
-      });
-      const glow = new THREE.PointLight(0xa06aff, 3, 8);
+      const queen = m.id === 'frost_queen';
+      const rig = queen
+        ? humanoid({
+            key: m.id, skin: '#dfeaf4', hair: '#f4faff', eyes: '#3ad0ff', shirt: '#6ab0f0', pants: '#3a7ac0', shoes: '#1a3a6a', robe: true,
+            hat: 'crown', weapon: 'staff', scale: s * 0.8,
+            shirtDetail: (g) => { g.rect(2, 0, 4, g.h, '#dff4ff'); for (let y = 6; y < g.h; y += 4) g.rect(0, y, g.w, 1, '#3a7ac0'); },
+          })
+        : humanoid({
+            key: m.id, skin: '#e8e2cf', hair: '#e8e2cf', eyes: '#7fff3a', shirt: '#4a2f8f', pants: '#2a1a4a', shoes: '#1a1a1a', face: 'skull', robe: true,
+            hat: 'crown', weapon: 'staff', scale: s * 0.8,
+            shirtDetail: (g) => { g.rect(3, 0, 2, g.h, '#d9b44a'); for (let y = 4; y < g.h; y += 5) g.rect(0, y, g.w, 1, '#2a1a5a'); },
+          });
+      const glow = new THREE.PointLight(queen ? 0x6ad0ff : 0xa06aff, 3, 8);
       glow.position.y = 1.5;
       rig.root.add(glow);
       return rig;
@@ -545,6 +566,23 @@ export function monsterRig(m: MonsterDef): Rig {
 // ------------------------------------------------------------ 場景物件
 
 /** Minecraft 橡樹：原木樹幹 + 兩層 5×5 樹葉 + 上方十字 */
+/** Minecraft 雲杉：細高的原木 + 一層層縮小的樹葉，頂端積雪 */
+export function spruceMesh(trunk = 6): THREE.Mesh {
+  return blockMesh((b) => {
+    b.box(-0.5, 0, -0.5, 0.5, trunk, 0.5, { py: 'log_top', ny: 'log_top', side: 'spruce_log' });
+    const layers: [number, number][] = [[1, 2], [2, 1], [3, 2], [4, 1], [5, 1]];
+    for (const [y, r] of layers) {
+      if (y >= trunk) break;
+      for (let x = -r; x <= r; x++) for (let z = -r; z <= r; z++) {
+        if (x === 0 && z === 0) continue;
+        if (Math.abs(x) === r && Math.abs(z) === r && r > 1) continue;
+        b.box(x - 0.5, y, z - 0.5, x + 0.5, y + 1, z + 0.5, { py: 'snow_top', side: 'spruce_leaves', ny: 'spruce_leaves' });
+      }
+    }
+    b.box(-0.5, trunk, -0.5, 0.5, trunk + 1, 0.5, { py: 'snow_top', side: 'spruce_leaves', ny: 'spruce_leaves' });
+  });
+}
+
 export function treeMesh(leaves: TileName = 'leaves', trunk = 4, stumpOnly = false): THREE.Mesh {
   return blockMesh((b) => {
     if (stumpOnly) {

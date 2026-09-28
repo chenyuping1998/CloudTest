@@ -58,6 +58,21 @@ export const TREASURE_POOLS: TreasurePool[] = [
       { itemId: 'flame_blade', weight: 0.5 },
     ],
   },
+  {
+    id: 'frost_t3',
+    triggerPpm: 25_000,
+    entries: [
+      { itemId: 'scroll_weapon', weight: 20 },
+      { itemId: 'scroll_armor', weight: 20 },
+      { itemId: 'snow_boots', weight: 15 },
+      { itemId: 'frost_crown', weight: 12 },
+      { itemId: 'frost_greatsword', weight: 10 },
+      { itemId: 'crystal_staff', weight: 10 },
+      { itemId: 'scroll_weapon_blessed', weight: 3 },
+      { itemId: 'giant_ring', weight: 1.5 },
+      { itemId: 'queen_tear', weight: 0.2 },
+    ],
+  },
 ];
 
 export const MONSTERS: MonsterDef[] = [
@@ -220,6 +235,106 @@ export const MONSTERS: MonsterDef[] = [
         { itemId: 'scroll_protect', ratePpm: PPM },
         { itemId: 'rune_fragment', ratePpm: 50_000, min: 2, max: 4 },
         { itemId: 'lich_scepter', ratePpm: 50, pity: { startAfter: 40, stepPpm: 25 } },
+      ],
+    },
+  },
+  // ======================= 霜語山脈（Lv 50~70） =======================
+  {
+    id: 'snow_wolf', name: '雪原狼', level: 50, hp: 3800, atk: 220, def: 45, hit: 140, flee: 70, baseExp: 211, jobExp: 152,
+    speed: 2.8, attacksPerSec: 1.1, aggressive: true, respawnSec: 20,
+    look: { color: '#e8eef4', shape: 'beast', scale: 1.2 },
+    drops: {
+      sourceId: 'snow_wolf', pools: ['frost_t3'],
+      drops: [
+        { itemId: 'snow_pelt', ratePpm: 550_000 },
+        { itemId: 'ice_crystal', ratePpm: 60_000 },
+        { itemId: 'white_potion', ratePpm: 20_000 },
+        { itemId: 'snow_boots', ratePpm: 1_500 },
+        { itemId: 'card_snow_wolf', ratePpm: CARD, category: 'card' },
+      ],
+    },
+  },
+  {
+    id: 'ice_slime', name: '冰晶史萊姆', level: 52, hp: 5200, atk: 200, def: 70, hit: 120, flee: 30, baseExp: 240, jobExp: 173,
+    speed: 1.4, attacksPerSec: 0.8, aggressive: false, respawnSec: 20,
+    look: { color: '#9cd8ff', shape: 'slime', scale: 1.2 },
+    drops: {
+      sourceId: 'ice_slime', pools: ['frost_t3'],
+      drops: [
+        { itemId: 'ice_crystal', ratePpm: 250_000 },
+        { itemId: 'jelly', ratePpm: 600_000, min: 2, max: 4 },
+        { itemId: 'blue_potion', ratePpm: 30_000 },
+        { itemId: 'frost_essence', ratePpm: 3_000 },
+        { itemId: 'card_ice_slime', ratePpm: CARD, category: 'card' },
+      ],
+    },
+  },
+  {
+    id: 'yeti', name: '雪人', level: 56, hp: 7500, atk: 260, def: 65, hit: 150, flee: 50, baseExp: 328, jobExp: 236,
+    speed: 1.8, attacksPerSec: 0.9, aggressive: false, respawnSec: 30,
+    look: { color: '#f0f4f8', shape: 'golem', scale: 1.4 },
+    drops: {
+      sourceId: 'yeti', pools: ['frost_t3'],
+      drops: [
+        { itemId: 'yeti_fur', ratePpm: 600_000, min: 1, max: 2 },
+        { itemId: 'ice_crystal', ratePpm: 80_000 },
+        { itemId: 'frost_essence', ratePpm: 6_000 },
+        { itemId: 'frost_greatsword', ratePpm: 800 },
+        { itemId: 'card_yeti', ratePpm: CARD, category: 'card' },
+      ],
+    },
+  },
+  {
+    id: 'frost_skeleton', name: '霜寒骷髏法師', level: 61, hp: 7000, atk: 300, def: 55, hit: 170, flee: 80, baseExp: 278, jobExp: 200,
+    speed: 1.6, attacksPerSec: 1, aggressive: true, respawnSec: 25,
+    look: { color: '#cfe4f4', shape: 'humanoid', scale: 1.15 },
+    drops: {
+      sourceId: 'frost_skeleton', pools: ['frost_t3'],
+      drops: [
+        { itemId: 'bone', ratePpm: 500_000, min: 1, max: 3 },
+        { itemId: 'frost_essence', ratePpm: 12_000 },
+        { itemId: 'rune_fragment', ratePpm: 40_000 },
+        { itemId: 'crystal_staff', ratePpm: 1_000 },
+        { itemId: 'frost_crown', ratePpm: 1_500 },
+        { itemId: 'scroll_armor_blessed', ratePpm: 300 },
+        { itemId: 'card_frost_skeleton', ratePpm: CARD, category: 'card' },
+      ],
+    },
+  },
+  {
+    id: 'frost_giant', name: '冰霜巨人', level: 66, hp: 13000, atk: 360, def: 90, hit: 170, flee: 40, baseExp: 460, jobExp: 331,
+    speed: 1.2, attacksPerSec: 0.7, aggressive: false, respawnSec: 40,
+    look: { color: '#8ab8e0', shape: 'golem', scale: 1.9 },
+    drops: {
+      sourceId: 'frost_giant', pools: ['frost_t3'],
+      drops: [
+        { itemId: 'giant_heart', ratePpm: 200_000 },
+        { itemId: 'mithril_ore', ratePpm: 200_000, min: 1, max: 3 },
+        { itemId: 'frost_essence', ratePpm: 15_000 },
+        { itemId: 'giant_ring', ratePpm: 400 },
+        { itemId: 'star_crystal', ratePpm: 60 },
+        { itemId: 'card_frost_giant', ratePpm: CARD, category: 'card' },
+      ],
+    },
+  },
+  {
+    id: 'frost_queen', name: '冰霜女王', level: 72, hp: 150_000, atk: 520, def: 100, hit: 220, flee: 90, baseExp: 29000, jobExp: 18000,
+    speed: 1.8, attacksPerSec: 0.9, aggressive: true, respawnSec: 7200, mvp: true,
+    look: { color: '#6ab0f0', shape: 'lich', scale: 2.3 },
+    drops: {
+      sourceId: 'frost_queen',
+      drops: [
+        { itemId: 'queen_shard', ratePpm: PPM, min: 2, max: 4 },
+        { itemId: 'frost_essence', ratePpm: 50_000, min: 2, max: 5 },
+        { itemId: 'scroll_weapon_blessed', ratePpm: 5_000 },
+        { itemId: 'scroll_armor_blessed', ratePpm: 5_000 },
+        { itemId: 'queen_tear', ratePpm: 300 },
+        { itemId: 'card_frost_queen', ratePpm: CARD, category: 'card' },
+      ],
+      mvpDrops: [
+        { itemId: 'scroll_protect', ratePpm: PPM, min: 2, max: 2 },
+        { itemId: 'frost_essence', ratePpm: 50_000, min: 3, max: 6 },
+        { itemId: 'permafrost_blade', ratePpm: 50, pity: { startAfter: 40, stepPpm: 25 } },
       ],
     },
   },

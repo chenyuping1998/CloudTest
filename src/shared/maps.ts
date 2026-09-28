@@ -7,10 +7,12 @@ import { randRange, SeededRng } from '../core/rng';
 import { Grid, valueNoise, type Column } from './grid';
 import type { TileName } from './tiles';
 
-export type ZoneId = 'field' | 'homestead';
+export type ZoneId = 'field' | 'homestead' | 'frost';
+/** 所有玩家共用的野外地圖（家園是每人一份） */
+export type WorldZoneId = 'field' | 'frost';
 export type NpcId = 'shop' | 'market' | 'guide';
 
-export interface TreeDef { x: number; z: number; leaves: TileName; trunk: number }
+export interface TreeDef { x: number; z: number; leaves: TileName; trunk: number; spruce?: boolean }
 
 export interface MapLayout {
   zone: ZoneId;
@@ -29,7 +31,12 @@ export interface MapLayout {
   sky: { top: string; bottom: string; fog: number };
 }
 
-export const ZONE_SIZE: Record<ZoneId, number> = { field: 72, homestead: 40 };
+export const ZONE_SIZE: Record<ZoneId, number> = { field: 72, homestead: 40, frost: 72 };
+
+export const ZONE_NAMES: Record<ZoneId, string> = { field: '晨曦平原', homestead: '家園', frost: '霜語山脈' };
+
+/** 地圖的建議等級（顯示在傳送門上） */
+export const ZONE_LEVELS: Record<ZoneId, string> = { field: 'Lv 1~50', homestead: '', frost: 'Lv 50~70' };
 
 /** 野外怪物分布：怪物 id、數量、中心點、半徑 */
 export const FIELD_SPAWNS: [string, number, [number, number], number][] = [
@@ -43,6 +50,20 @@ export const FIELD_SPAWNS: [string, number, [number, number], number][] = [
   ['magma_golem', 4, [0, 26], 5],
   ['bone_lich', 1, [24, 24], 3],
 ];
+
+export const FROST_SPAWNS: [string, number, [number, number], number][] = [
+  ['snow_wolf', 8, [-14, -14], 8],
+  ['ice_slime', 7, [-14, 14], 7],
+  ['yeti', 6, [8, -20], 7],
+  ['frost_skeleton', 6, [20, 4], 7],
+  ['frost_giant', 4, [18, 22], 6],
+  ['frost_queen', 1, [26, -24], 3],
+];
+
+export const ZONE_SPAWNS: Record<WorldZoneId, typeof FIELD_SPAWNS> = { field: FIELD_SPAWNS, frost: FROST_SPAWNS };
+
+/** MVP 出現時的公告位置描述 */
+export const MVP_LOCATION: Record<string, string> = { bone_lich: '晨曦平原的東南方', frost_queen: '霜語山脈的東北方冰原' };
 
 const HOMESTEAD_NODE_SLOTS: [number, number][] = [
   [-12, -9], [-15, -3], [-11, 3], [11, -11], [15, -6], [-14, 10], [-8, 13], [12, 7], [16, 12], [7, 14], [-5, -14], [3, -15],
@@ -127,7 +148,7 @@ export function fieldLayout(): MapLayout {
     const leaves: TileName = tr.next() < 0.15 ? 'maple_leaves' : 'leaves';
     const trunk = 4 + (tr.next() < 0.5 ? 1 : 0);
     const col = grid.columnAt(x, z);
-    if (!col || col.top !== 'grass_top' || Math.hypot(x, z) < 9 || Math.abs(x) < 2 || Math.abs(z) < 2) continue;
+    if (!col || col.top !== 'grass_top' || Math.hypot(x, z) < 9 || Math.abs(x) < 2 || Math.abs(z) < 2 || Math.hypot(x - 31.5, z - 8.5) < 4) continue;
     if (FIELD_SPAWNS.some(([, , [cx, cz], r]) => Math.hypot(x - cx, z - cz) < r * 0.6)) continue;
     const t = { x: Math.floor(x) + 0.5, z: Math.floor(z) + 0.5, leaves, trunk };
     trees.push(t);
@@ -141,7 +162,7 @@ export function fieldLayout(): MapLayout {
   }
   fieldCache = {
     zone: 'field', size, grid, spawn: { x: 0.5, z: 1.5 }, trees, graves, npcs: NPC_POSITIONS,
-    portals: [{ to: 'homestead', x: -5, z: 4.5 }], stations: [], nodes: [], fences: [],
+    portals: [{ to: 'homestead', x: -5, z: 4.5 }, { to: 'frost', x: 31.5, z: 8.5 }], stations: [], nodes: [], fences: [],
     sky: { top: '#5d9cf0', bottom: '#bfe0ff', fog: 0xbfe0ff },
   };
   return fieldCache;
@@ -196,4 +217,70 @@ export function homesteadLayout(nodes: readonly NodeState[]): MapLayout {
     fences: [fence.slice(0, 16), fence.slice(16)],
     sky: { top: '#f0a860', bottom: '#ffe4b8', fog: 0xffe4b8 },
   };
+}
+
+// ============================================================ 霜語山脈
+
+function frostColumn(x: number, z: number, noise: (x: number, z: number) => number, rng: SeededRng): Column {
+  const half = ZONE_SIZE.frost / 2;
+  if (Math.max(Math.abs(x), Math.abs(z)) > half - 1) return { height: 5, top: 'packed_ice', under: 'packed_ice', blocked: true };
+  const n = noise(x * 0.08, z * 0.08);
+  const inRegion = (cx: number, cz: number, r: number) => Math.hypot(x - cx, z - cz) < r;
+  // 入口營地
+  if (inRegion(-29, 0, 5)) return { height: 1, top: inRegion(-29, 0, 3) ? 'cobble' : 'frozen_grass', under: 'dirt' };
+  // 結冰的湖（可以走）
+  if (inRegion(-2, 20, 7)) return { height: 1, top: inRegion(-2, 20, 5.5) ? 'ice' : 'snow_top', under: 'packed_ice' };
+  // 主要道路
+  if (Math.abs(z) < 1.2 && x < 20) return { height: 1, top: 'gravel', under: 'dirt' };
+  let height = 1 + (n > 0.55 ? 1 : 0) + (n > 0.7 ? 1 : 0) + (n > 0.82 ? 1 : 0);
+  let top: TileName = 'snow_top';
+  let under: TileName = 'dirt';
+  if (inRegion(26, -24, 6)) {
+    top = rng.next() < 0.6 ? 'packed_ice' : 'ice';
+    under = 'packed_ice';
+    height = 1;
+  } else if (inRegion(18, 22, 8)) {
+    top = rng.next() < 0.5 ? 'packed_ice' : 'snow_top';
+    under = 'stone';
+    height = Math.min(height, 2);
+  } else if (inRegion(20, 4, 8) || inRegion(8, -20, 8)) {
+    height = Math.min(height, 2);
+  } else if (inRegion(-14, 14, 8) || inRegion(-14, -14, 9)) {
+    height = 1;
+  }
+  return { height, top, under };
+}
+
+let frostCache: MapLayout | undefined;
+
+export function frostLayout(): MapLayout {
+  if (frostCache) return frostCache;
+  const size = ZONE_SIZE.frost;
+  const half = size / 2;
+  const noise = valueNoise(21);
+  const rng = new SeededRng(77);
+  const grid = new Grid(size, (x, z) => frostColumn(x, z, noise, rng));
+  const trees: TreeDef[] = [];
+  const tr = new SeededRng(13);
+  for (let i = 0; i < 90; i++) {
+    const x = randRange(tr, -half + 3, half - 3);
+    const z = randRange(tr, -half + 3, half - 3);
+    const trunk = 5 + (tr.next() < 0.5 ? 1 : 0);
+    const col = grid.columnAt(x, z);
+    if (!col || col.top !== 'snow_top' || Math.hypot(x + 29, z) < 7 || Math.abs(z) < 2) continue;
+    if (FROST_SPAWNS.some(([, , [cx, cz], r]) => Math.hypot(x - cx, z - cz) < r * 0.7)) continue;
+    const t: TreeDef = { x: Math.floor(x) + 0.5, z: Math.floor(z) + 0.5, leaves: 'spruce_leaves', trunk, spruce: true };
+    trees.push(t);
+    blockTree(grid, t);
+  }
+  frostCache = {
+    zone: 'frost', size, grid, spawn: { x: -28.5, z: 0.5 }, trees, graves: [], npcs: [],
+    portals: [{ to: 'field', x: -32, z: 0.5 }], stations: [], nodes: [], fences: [],
+    sky: { top: '#8fb8e8', bottom: '#eef4fa', fog: 0xe4eef8 },
+  };
+  return frostCache;
+}
+
+export function worldLayout(zone: WorldZoneId): MapLayout {
+  return zone === 'field' ? fieldLayout() : frostLayout();
 }

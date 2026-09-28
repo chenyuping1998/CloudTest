@@ -6,7 +6,7 @@ import type { Grid } from '../../shared/grid';
 import type { TileName } from '../../shared/tiles';
 import { blockMaterial, cutoutMaterial, GeoBuilder, waterMaterial } from './mesher';
 
-const SIDE_OF: Partial<Record<TileName, TileName>> = { grass_top: 'grass_side' };
+const SIDE_OF: Partial<Record<TileName, TileName>> = { grass_top: 'grass_side', snow_top: 'snow_side', frozen_grass: 'snow_side' };
 
 export class Terrain {
   readonly group = new THREE.Group();
