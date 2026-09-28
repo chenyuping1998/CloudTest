@@ -24,6 +24,7 @@ import { tickMaterials } from './voxel/mesher';
 import { Terrain } from './voxel/terrain';
 import { settings, type Settings } from './settings';
 import { npcQuestMarker, questDay } from '../core/quests';
+import { INTERACT_RANGE, MELEE_RANGE, playerSpeed, RANGED_RANGE, stepToward } from '../shared/movement';
 
 export type { ZoneId, NpcId };
 
@@ -36,6 +37,10 @@ interface View {
   animT: number;
   attackT: number;
   swing: number;
+  /** 受擊停頓到這個時間（hit-stop） */
+  hitStop?: number;
+  /** 受擊壓扁效果開始時間 */
+  squashAt?: number;
 }
 
 interface PlayerView extends View {
@@ -70,6 +75,8 @@ interface NodeView {
   pos: THREE.Vector3;
   depleted?: boolean;
   hitsLeft: number;
+  /** 被採集時搖晃的開始時間 */
+  wobbleAt?: number;
 }
 
 interface NpcView extends View {
@@ -137,6 +144,16 @@ export class World {
   private sun: THREE.DirectionalLight;
   /** 目前鎖定攻擊的怪物（僅供標籤顯示） */
   private targetId?: number;
+  /**
+   * 自己角色的移動預測：點下去立刻開始走，不用等伺服器回應（伺服器仍然是權威，差太多就修正）。
+   * monster：追著怪物走到攻擊距離內
+   */
+  private predict?: { x: number; z: number; stopAt: number; monster?: number; since: number };
+  /** 預測結束後，等伺服器位置追上來（避免被往回拉一下的「橡皮筋」感） */
+  private settleSince?: number;
+  /** 畫面震動強度（爆擊、被打） */
+  private shake = 0;
+  private hoverRig?: Rig;
   hovered?: Pick;
 
   constructor(
@@ -245,7 +262,8 @@ export class World {
         this.zoneRoot.add(v.rig.root);
         this.players.set(s.id, v);
       }
-      this.syncView(v, s.x, s.z, s.yaw, s.moving, s.swing);
+      if (s.id === this.cs.myId) this.syncMe(v, s.x, s.z, s.yaw, s.moving, s.swing);
+      else this.syncView(v, s.x, s.z, s.yaw, s.moving, s.swing);
       v.hp = s.hp;
       v.maxHp = s.maxHp;
     }
@@ -327,6 +345,71 @@ export class World {
     }
   }
 
+  /** 自己的角色：預測中以本機位置為準，只有跟伺服器差太多時才修正 */
+  private syncMe(v: View, x: number, z: number, yaw: number, moving: boolean, swing: number): void {
+    const p = this.predict;
+    if (swing !== v.swing && (p || this.settleSince !== undefined)) {
+      v.swing = swing;
+      v.attackT = 0.001;
+    }
+    if (!p && this.settleSince !== undefined) {
+      const err = Math.hypot(x - v.pos.x, z - v.pos.z);
+      if (moving && err < 2.5 && performance.now() - this.settleSince < 1500) return;
+      this.settleSince = undefined;
+    }
+    if (p) {
+      const err = Math.hypot(x - v.pos.x, z - v.pos.z);
+      // 伺服器落後一點是正常的（網路延遲）；差太多代表被擋住、傳送或死亡
+      const stuck = !moving && performance.now() - p.since > 700 && err > 0.8;
+      if (err < 3 && !stuck) return;
+      this.predict = undefined;
+    }
+    this.syncView(v, x, z, yaw, moving, swing);
+  }
+
+  private mySpeed(): number {
+    return playerSpeed(this.cs.player?.derived().totalStats.agi ?? 1);
+  }
+
+  private myRange(): number {
+    return this.cs.player?.classDef.ranged ? RANGED_RANGE : MELEE_RANGE;
+  }
+
+  private startPredict(x: number, z: number, stopAt: number, monster?: number): void {
+    this.predict = { x, z, stopAt: Math.max(0, stopAt), monster, since: performance.now() };
+  }
+
+  /** 每幀推進自己的預測位置 */
+  private stepPrediction(dt: number): void {
+    const p = this.predict;
+    const me = this.me();
+    if (!p || !me || !this.terrain) return;
+    let tx = p.x;
+    let tz = p.z;
+    if (p.monster !== undefined) {
+      const m = this.monsters.get(p.monster);
+      if (!m || m.dead) {
+        this.predict = undefined;
+        return;
+      }
+      tx = m.pos.x;
+      tz = m.pos.z;
+    }
+    const st = { x: me.pos.x, z: me.pos.z, yaw: me.yaw, moving: false };
+    const arrived = stepToward(this.terrain.grid, st, tx, tz, this.mySpeed(), dt, p.stopAt);
+    me.pos.x = st.x;
+    me.pos.z = st.z;
+    me.pos.y += (this.groundY(st.x, st.z) - me.pos.y) * Math.min(1, dt * 15);
+    me.target.copy(me.pos);
+    me.yaw = st.moving ? st.yaw : Math.atan2(tx - me.pos.x, tz - me.pos.z);
+    me.moving = st.moving && !arrived;
+    // 抵達（或追到攻擊距離）後交回伺服器同步
+    if (arrived) {
+      this.predict = undefined;
+      this.settleSince = performance.now();
+    }
+  }
+
   private applyFx(f: Extract<ServerMsg, { t: 'fx' }>): void {
     let at = new THREE.Vector3(f.x, this.groundY(f.x, f.z) + f.y, f.z);
     if (f.target !== undefined) {
@@ -336,14 +419,21 @@ export class World {
       if (v) at = v.pos.clone().setY(v.pos.y + v.rig.height + 0.3);
       if (m && (f.kind === 'dmg' || f.kind === 'crit' || f.kind === 'miss')) m.lastHit = this.time;
       if (v && (f.kind === 'dmg' || f.kind === 'crit' || f.kind === 'hurt')) this.flash(v.rig);
+      if (m && (f.kind === 'dmg' || f.kind === 'crit')) this.hitReaction(m, at, f.kind === 'crit');
+      if (p && f.kind === 'hurt' && p.id === this.cs.myId) this.addShake(0.08);
     }
     switch (f.kind) {
       case 'poof':
         this.particles(at, 0xeeeeee, 10, 0.15, 0.6, 700, false);
         return;
-      case 'chips':
-        this.particles(at, new THREE.Color(f.color ?? '#888').getHex(), 6, 0.1, 2, 600, true);
+      case 'chips': {
+        this.particles(at, new THREE.Color(f.color ?? '#888').getHex(), 8, 0.1, 2.2, 600, true);
+        // 被敲的礦石 / 樹搖一下
+        let best: NodeView | undefined;
+        for (const n of this.nodes) if (Math.hypot(n.pos.x - f.x, n.pos.z - f.z) < 1.5) best = n;
+        if (best) best.wobbleAt = this.time;
         return;
+      }
       case 'skill':
         this.skillEffect(new THREE.Vector3(f.x, this.groundY(f.x, f.z), f.z), f.color ?? '#fff', f.radius ?? 0, f.element ?? 'physical');
         if (f.caster !== undefined) {
@@ -547,7 +637,23 @@ export class World {
 
   hover(clientX: number, clientY: number): Pick | undefined {
     this.hovered = this.pickAt(clientX, clientY);
+    // 滑鼠指到的怪物 / NPC / 玩家微微發亮
+    const h = this.hovered;
+    const rig = h?.type === 'monster' ? this.monsters.get(h.id)?.rig : h?.type === 'npc' ? this.npcs.find((n) => n.id === h.id)?.rig : h?.type === 'player' ? this.players.get(h.id)?.rig : undefined;
+    if (rig !== this.hoverRig) {
+      if (this.hoverRig) this.tint(this.hoverRig, 0, 0, 0);
+      if (rig) this.tint(rig, 0.16, 0.14, 0.1);
+      this.hoverRig = rig;
+    }
     return this.hovered;
+  }
+
+  private tint(rig: Rig, r: number, g: number, b: number): void {
+    rig.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) (m as THREE.MeshLambertMaterial).emissive?.setRGB(r, g, b);
+    });
   }
 
   hoveredItem(): { defId: string; qty: number } | undefined {
@@ -556,45 +662,65 @@ export class World {
     return this.items.get(h.id);
   }
 
-  click(clientX: number, clientY: number): void {
+  /** @returns true = 點在地面上（可以按住持續移動） */
+  click(clientX: number, clientY: number): boolean {
     const p = this.pickAt(clientX, clientY);
     if (p) {
       switch (p.type) {
-        case 'monster':
+        case 'monster': {
           this.targetId = p.id;
           this.cs.send({ t: 'attack', id: p.id });
-          return;
-        case 'item':
+          const m = this.monsters.get(p.id);
+          if (m) this.startPredict(m.pos.x, m.pos.z, this.myRange() - 0.15, p.id);
+          return false;
+        }
+        case 'item': {
           this.cs.send({ t: 'pickup', id: p.id });
-          return;
-        case 'node':
+          const it = this.items.get(p.id);
+          if (it) this.startPredict(it.pos.x, it.pos.z, 0.6);
+          return false;
+        }
+        case 'node': {
           this.cs.send({ t: 'gather', node: p.i });
-          return;
+          const n = this.nodes[p.i];
+          if (n) this.startPredict(n.pos.x, n.pos.z, 1.6);
+          return false;
+        }
         case 'station':
           this.cs.send({ t: 'interact', kind: 'station', id: p.id });
-          return;
-        case 'npc':
+          return false;
+        case 'npc': {
           this.cs.send({ t: 'interact', kind: 'npc', id: p.id });
-          return;
+          const n = this.npcs.find((x) => x.id === p.id);
+          if (n) this.startPredict(n.pos.x, n.pos.z, INTERACT_RANGE - 0.3);
+          return false;
+        }
         case 'player': {
           const pl = this.players.get(p.id);
           if (pl) this.ev.playerMenu(pl.name, clientX, clientY);
-          return;
+          return false;
         }
       }
     }
-    if (!this.terrain) return;
+    return this.moveTo(clientX, clientY, true);
+  }
+
+  /** 點地面移動；按住滑鼠時持續呼叫（不顯示點擊標記以免閃爍） */
+  moveTo(clientX: number, clientY: number, marker: boolean): boolean {
+    if (!this.terrain) return false;
     this.raycaster.setFromCamera(this.ndc(clientX, clientY), this.camera);
     const hit = this.raycaster.intersectObject(this.terrain.mesh, false)[0];
-    if (!hit) return;
+    if (!hit) return false;
     const pt = hit.point;
     const half = ZONE_SIZE[this.zone] / 2 - 1.5;
     pt.x = Math.max(-half, Math.min(half, pt.x));
     pt.z = Math.max(-half, Math.min(half, pt.z));
     this.cs.send({ t: 'move', x: pt.x, z: pt.z });
+    this.startPredict(pt.x, pt.z, 0);
     this.targetId = undefined;
     this.clickMarker.position.set(pt.x, this.groundY(pt.x, pt.z) + 0.03, pt.z);
-    this.clickMarker.visible = true;
+    this.clickMarker.visible = marker;
+    return true;
   }
 
   pickupNearest(): void {
@@ -609,7 +735,10 @@ export class World {
         best = it;
       }
     }
-    if (best) this.cs.send({ t: 'pickup', id: best.id });
+    if (best) {
+      this.cs.send({ t: 'pickup', id: best.id });
+      this.startPredict(best.pos.x, best.pos.z, 0.6);
+    }
   }
 
   /** 技能目標：已鎖定的怪 → 滑鼠指著的怪 → 身邊最近的怪 */
@@ -648,6 +777,7 @@ export class World {
     if (best) {
       this.targetId = best.id;
       this.cs.send({ t: 'attack', id: best.id });
+      this.startPredict(best.pos.x, best.pos.z, this.myRange() - 0.15, best.id);
     }
   }
 
@@ -657,7 +787,13 @@ export class World {
     this.time += dt;
     tickMaterials(this.time);
     const lerp = Math.min(1, dt * 12);
+    this.stepPrediction(dt);
     const animate = (v: View) => {
+      // 受擊停頓：短暫凍結動作，讓打擊有「重量」
+      if (v.hitStop && this.time < v.hitStop) {
+        v.rig.root.position.copy(v.pos);
+        return;
+      }
       v.pos.lerp(v.target, lerp);
       v.rig.root.position.copy(v.pos);
       let dy = v.yaw - v.rig.yaw.rotation.y;
@@ -669,6 +805,11 @@ export class World {
         if (v.attackT >= 1) v.attackT = 0;
       }
       animateRig(v.rig, v.moving ? v.animT : this.time, v.moving, v.attackT, dt);
+      if (v.squashAt !== undefined) {
+        const k = Math.max(0, 1 - (this.time - v.squashAt) / 0.16);
+        v.rig.root.scale.set(1 + 0.14 * k, 1 - 0.16 * k, 1 + 0.14 * k);
+        if (k === 0) v.squashAt = undefined;
+      }
     };
     for (const v of this.players.values()) animate(v);
     for (const v of this.monsters.values()) if (!v.dead) animate(v);
@@ -690,6 +831,13 @@ export class World {
     for (const c of this.clouds) {
       c.position.x += dt * 0.6;
       if (c.position.x > ZONE_SIZE[this.zone]) c.position.x = -ZONE_SIZE[this.zone];
+    }
+    for (const n of this.nodes) {
+      if (n.wobbleAt === undefined) continue;
+      const k = Math.max(0, 1 - (this.time - n.wobbleAt) / 0.25);
+      n.group.rotation.z = Math.sin(this.time * 70) * 0.07 * k;
+      n.group.rotation.x = Math.cos(this.time * 55) * 0.04 * k;
+      if (k === 0) n.wobbleAt = undefined;
     }
     const me = this.me();
     if (me && this.clickMarker.visible && me.pos.distanceTo(this.clickMarker.position) < 0.6) this.clickMarker.visible = false;
@@ -740,6 +888,24 @@ export class World {
         }
       });
     }
+  }
+
+  /** 打擊感：擊退、停頓、壓扁、火花；爆擊再加上畫面震動 */
+  private hitReaction(m: MonsterView, at: THREE.Vector3, crit: boolean): void {
+    const me = this.me();
+    if (me) {
+      const dir = m.pos.clone().sub(me.pos).setY(0);
+      if (dir.lengthSq() > 1e-4) m.pos.add(dir.normalize().multiplyScalar(crit ? 0.42 : 0.2));
+    }
+    m.hitStop = this.time + (crit ? 0.09 : 0.05);
+    m.squashAt = this.time;
+    this.particles(at, crit ? 0xffd24a : 0xffffff, crit ? 12 : 5, crit ? 0.09 : 0.07, crit ? 3.2 : 2.2, crit ? 420 : 280, false);
+    if (crit) this.addShake(0.12);
+  }
+
+  private addShake(amount: number): void {
+    if (!settings.get().screenShake) return;
+    this.shake = Math.max(this.shake, amount);
   }
 
   /** 受擊時變紅（Minecraft 的受傷閃爍） */
@@ -820,6 +986,11 @@ export class World {
     );
     this.camera.position.copy(this.camTarget).add(off);
     this.camera.lookAt(this.camTarget.x, this.camTarget.y + 0.9, this.camTarget.z);
+    if (this.shake > 0.001) {
+      this.camera.position.x += (Math.random() - 0.5) * this.shake;
+      this.camera.position.y += (Math.random() - 0.5) * this.shake;
+      this.shake *= Math.exp(-dt * 14);
+    }
     this.sun.position.copy(this.camTarget).add(new THREE.Vector3(-18, 34, 12));
     this.sun.target.position.copy(this.camTarget);
   }

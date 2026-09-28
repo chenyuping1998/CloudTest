@@ -343,12 +343,22 @@ function bindInput(cs: ClientState, world: World, hud: Hud): void {
   const canvas = world.renderer.domElement;
   let rightDrag: { x: number } | undefined;
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  // RO / 天堂式操作：在地面上按住左鍵，角色會一直朝游標走
+  let holdMove = false;
+  let lastHold = 0;
   canvas.addEventListener('mousedown', (e) => {
-    if (e.button === 0) world.click(e.clientX, e.clientY);
+    if (e.button === 0) holdMove = world.click(e.clientX, e.clientY);
     if (e.button === 2) rightDrag = { x: e.clientX };
   });
-  window.addEventListener('mouseup', () => (rightDrag = undefined));
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 0) holdMove = false;
+    rightDrag = undefined;
+  });
   canvas.addEventListener('mousemove', (e) => {
+    if (holdMove && performance.now() - lastHold > 120) {
+      lastHold = performance.now();
+      world.moveTo(e.clientX, e.clientY, false);
+    }
     if (rightDrag) {
       world.rotateCamera((e.clientX - rightDrag.x) * -0.008);
       rightDrag.x = e.clientX;

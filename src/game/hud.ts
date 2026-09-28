@@ -878,7 +878,7 @@ export class Hud {
       });
       return h('div', { class: 'setting-row' }, h('span', {}, label), input, val);
     };
-    const toggle = (label: string, key: 'muted' | 'shadows' | 'weather', desc: string) =>
+    const toggle = (label: string, key: 'muted' | 'shadows' | 'weather' | 'screenShake', desc: string) =>
       h('div', { class: 'setting-row' }, h('span', { title: desc }, label),
         h('button', { class: `btn btn-small toggle${st[key] ? ' on' : ''}`, onclick: () => settings.set({ [key]: !st[key] }) }, st[key] ? '開' : '關'),
         h('span', { class: 'muted small' }, desc));
@@ -890,6 +890,7 @@ export class Hud {
       h('h4', {}, '畫面'),
       toggle('即時陰影', 'shadows', '關閉可大幅提升低階電腦的流暢度'),
       toggle('天氣粒子', 'weather', '霜語山脈的雪、餘燼深淵的火星'),
+      toggle('畫面震動', 'screenShake', '爆擊與被打時輕微震動；容易頭暈可以關掉'),
       h('div', { class: 'setting-row' }, h('span', {}, '繪圖解析度'),
         h('div', { class: 'seg' }, ...scales.map((v) => h('button', { class: `btn btn-small${st.renderScale === v ? ' on' : ''}`, onclick: () => settings.set({ renderScale: v }) }, `${v * 100}%`)))),
       h('div', { class: 'setting-row' }, h('span', {}, '全螢幕'),

@@ -12,11 +12,13 @@ export interface Settings {
   renderScale: number;
   /** 天氣粒子（雪、火星） */
   weather: boolean;
+  /** 爆擊 / 被打時畫面震動（容易頭暈的玩家可以關掉） */
+  screenShake: boolean;
 }
 
 const KEY = 'roe:settings';
 
-export const DEFAULT_SETTINGS: Settings = { master: 0.8, music: 0.5, sfx: 0.8, muted: false, shadows: true, renderScale: 1, weather: true };
+export const DEFAULT_SETTINGS: Settings = { master: 0.8, music: 0.5, sfx: 0.8, muted: false, shadows: true, renderScale: 1, weather: true, screenShake: true };
 
 function load(): Settings {
   try {
@@ -31,6 +33,7 @@ function load(): Settings {
       shadows: s.shadows !== false,
       renderScale: clamp(s.renderScale, 0.5, 2, 1),
       weather: s.weather !== false,
+      screenShake: s.screenShake !== false,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

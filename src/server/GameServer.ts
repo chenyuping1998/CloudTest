@@ -29,6 +29,7 @@ import { BOT_NAMES, MarketBots } from './marketBots';
 import { ACHIEVEMENT_DB } from '../shared/achievements';
 import { SKILL_DB, type SkillDef } from '../data/skills';
 import { QUEST_DB } from '../data/quests';
+import { INTERACT_RANGE, MELEE_RANGE, playerSpeed, RANGED_RANGE, stepToward } from '../shared/movement';
 import { abandonQuest, acceptQuest, questDay, questEvent, questStatus, turnInQuest, type QuestEvent } from '../core/quests';
 
 // ------------------------------------------------------------ 介面
@@ -182,9 +183,6 @@ interface Zone {
   nextSnap: number;
 }
 
-const MELEE_RANGE = 1.6;
-const RANGED_RANGE = 7;
-const INTERACT_RANGE = 2.4;
 const NPC_ACTION_RANGE = 6;
 const LOOT_PRIORITY_MS = 5_000;
 const ITEM_LIFETIME_MS = 120_000;
@@ -759,30 +757,12 @@ export class GameServer {
   }
 
   private speedOf(p: PlayerEnt): number {
-    return 4.3 + p.ch.derived().totalStats.agi * 0.01;
+    return playerSpeed(p.ch.derived().totalStats.agi);
   }
 
   /** 朝目標移動；回傳是否抵達。碰到障礙物會沿牆滑動或停下 */
   private moveToward(z: Zone, e: Mover, tx: number, tz: number, speed: number, dt: number, stopAt: number): boolean {
-    const dx = tx - e.x;
-    const dz = tz - e.z;
-    const d = Math.hypot(dx, dz);
-    if (d <= stopAt) return true;
-    const step = Math.min(speed * dt, d - stopAt);
-    let nx = e.x + (dx / d) * step;
-    let nz = e.z + (dz / d) * step;
-    const g = z.layout.grid;
-    if (!g.walkable(nx, nz)) {
-      if (g.walkable(nx, e.z)) nz = e.z;
-      else if (g.walkable(e.x, nz)) nx = e.x;
-      else return true;
-    }
-    if (g.heightAt(nx, nz) - g.heightAt(e.x, e.z) > 1.2) return true;
-    e.x = nx;
-    e.z = nz;
-    e.yaw = Math.atan2(dx, dz);
-    e.moving = true;
-    return d - step <= stopAt + 1e-3;
+    return stepToward(z.layout.grid, e, tx, tz, speed, dt, stopAt);
   }
 
   private face(e: Mover, x: number, z: number): void {
