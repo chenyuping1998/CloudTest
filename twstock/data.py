@@ -56,6 +56,21 @@ class PriceData:
     df: pd.DataFrame
 
 
+def friendly_error(e: Exception) -> str:
+    """把網路錯誤轉成簡短中文說明。"""
+    if isinstance(e, requests.exceptions.Timeout):
+        return "連線逾時"
+    if isinstance(e, requests.exceptions.HTTPError) and e.response is not None:
+        code = e.response.status_code
+        hint = "（可能被對方暫時封鎖或限流）" if code in (403, 429) else ""
+        return f"HTTP {code}{hint}"
+    if isinstance(e, requests.exceptions.ConnectionError):
+        return "無法連線（網路被擋或對方伺服器無回應）"
+    if isinstance(e, ValueError):
+        return "回應格式錯誤（可能是被封鎖時回傳的網頁）"
+    return str(e)[:120]
+
+
 def normalize_code(code: str) -> str:
     code = code.strip().upper()
     for suffix in (".TW", ".TWO"):

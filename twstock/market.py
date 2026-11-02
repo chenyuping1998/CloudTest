@@ -253,7 +253,8 @@ def get_window(market: str, days: int, use_demo: bool = False, max_lookback: int
             try:
                 day = get_day(market, d, use_demo)
             except Exception as e:  # noqa: BLE001 - 網路或格式錯誤
-                raise D.DataError(f"{market} {d:%Y-%m-%d} 資料取得失敗：{e}") from e
+                name = {"twse": "證交所", "tpex": "櫃買中心"}.get(market, market)
+                raise D.DataError(f"{name} {d:%Y-%m-%d} 資料取得失敗：{D.friendly_error(e)}") from e
             if day is not None:
                 got.append((d, day[0], day[1]))
         d -= timedelta(days=1)

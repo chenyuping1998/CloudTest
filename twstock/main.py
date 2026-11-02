@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+from datetime import datetime
 import secrets
 import threading
 import time
@@ -15,6 +16,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pandas as pd
+import requests
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -312,9 +314,10 @@ async def line_webhook(request: Request, background: BackgroundTasks):
 @app.post("/api/admin/test-notify")
 def test_notify(_: None = Depends(require_admin_or_local)):
     result = notifier.send_all("✅ 台股監控平台測試推播：收到這則訊息代表設定成功")
+    errors = notifier.send_errors(result)
     if not any(result.values()):
-        raise HTTPException(400, "沒有任何推播管道設定成功，請檢查 Telegram / LINE 環境變數")
-    return result
+        raise HTTPException(400, "推播失敗：" + "；".join(errors.values()) if errors else "沒有設定任何推播管道")
+    return {**result, "errors": errors}
 
 
 @app.get("/api/picks")
@@ -334,8 +337,41 @@ def daily_picks():
 def push_picks_now(_: None = Depends(require_admin_or_local)):
     result = notifier.push_daily_picks(force=True)
     if result is None:
-        raise HTTPException(503, "每日精選計算失敗，請稍後再試")
+        raise HTTPException(503, notifier.picks_error or "每日精選計算失敗，請稍後再試")
     return result
+
+
+def _probe(url: str, params: dict | None = None) -> dict:
+    t = time.time()
+    try:
+        r = requests.get(url, params=params, headers=D.HEADERS, timeout=10)
+        ok = r.ok and len(r.content) > 50
+        return {"ok": ok, "status": r.status_code, "ms": int((time.time() - t) * 1000),
+                **({} if ok else {"error": f"HTTP {r.status_code}" + ("（可能被封鎖或限流）" if r.status_code in (403, 429) else "")})}
+    except requests.RequestException as e:
+        return {"ok": False, "error": D.friendly_error(e), "ms": int((time.time() - t) * 1000)}
+
+
+@app.get("/api/admin/status")
+def admin_status(_: None = Depends(require_admin_or_local)):
+    """系統診斷：資料來源連線、推播設定、最近一次精選推播結果。"""
+    sources = {
+        "Yahoo Finance（日線）": _probe("https://query1.finance.yahoo.com/v8/finance/chart/2330.TW", {"range": "5d", "interval": "1d"}),
+        "證交所（法人 / 行情，選股與精選用）": _probe("https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX", {"response": "json", "type": "IND"}),
+        "證交所 OpenAPI（月營收 / 本益比）": _probe("https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"),
+    }
+    return {
+        "source_mode": D.SOURCE,
+        "offline_fallback": D.SOURCE == "auto" and time.time() < D._offline_until,
+        "sources": sources,
+        "telegram": {"configured": bool(os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID")),
+                     "last_error": notifier.telegram_error},
+        "line": line_bot.status(),
+        "picks": {"enabled": os.environ.get("TWSTOCK_DAILY_PICKS", "1") == "1",
+                  "time": os.environ.get("TWSTOCK_PICKS_TIME", "08:30"),
+                  "last_push": notifier.last_picks_push, "last_error": notifier.picks_error},
+        "server_time": datetime.now(notifier.TZ).strftime("%Y-%m-%d %H:%M:%S"),
+    }
 
 
 # ---------------------------------------------------------------- 選股

@@ -85,7 +85,8 @@ def test_test_notify_endpoint(sent, monkeypatch):
     assert client.post("/api/admin/test-notify").status_code == 401
     assert client.post("/api/admin/test-notify", headers=h).status_code == 400  # 尚未設定推播對象
     monkeypatch.setenv("LINE_TO", "Uaaa")
-    assert client.post("/api/admin/test-notify", headers=h).json() == {"telegram": False, "line": True}
+    r = client.post("/api/admin/test-notify", headers=h).json()
+    assert r["line"] is True and r["telegram"] is False and "line" not in r["errors"]
 
 
 def test_secret_with_whitespace(sent, monkeypatch):
@@ -97,3 +98,43 @@ def test_secret_with_whitespace(sent, monkeypatch):
 def test_join_group_replies_group_id(sent):
     line_bot.handle_events({"events": [{"type": "join", "replyToken": "r9", "source": {"type": "group", "groupId": "Cabc123"}}]})
     assert sent[-1][0] == "reply" and "Cabc123" in sent[-1][1]["messages"][0]["text"]
+
+
+class _Resp:
+    def __init__(self, status, body):
+        self.status_code, self._body, self.ok, self.text = status, body, status < 400, str(body)
+
+    def json(self):
+        return self._body
+
+
+def test_line_error_reason(monkeypatch):
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "bad")
+    monkeypatch.setenv("LINE_TO", "Uaaa")
+    monkeypatch.setattr(line_bot.requests, "post", lambda *a, **k: _Resp(401, {"message": "Authentication failed"}))
+    assert line_bot.push("x") is False
+    assert "access token" in line_bot.last_error and "401" in line_bot.last_error
+    monkeypatch.delenv("LINE_TO")
+    line_bot.push("x")
+    assert "LINE_TO" in line_bot.last_error
+
+
+def test_push_picks_reports_compute_failure(monkeypatch):
+    from twstock import main, picks
+    monkeypatch.setattr(main, "AUTH_PASSWORD", "pw")
+
+    def fail(**kw):
+        raise ConnectionError("證交所連線被拒")
+    monkeypatch.setattr(picks, "compute", fail)
+    r = client.post("/api/admin/push-picks", headers={"X-Admin-Password": "pw"})
+    assert r.status_code == 503 and "證交所連線被拒" in r.json()["detail"]
+
+
+def test_admin_status(monkeypatch):
+    from twstock import main
+    monkeypatch.setattr(main, "AUTH_PASSWORD", "pw")
+    monkeypatch.setattr(main, "_probe", lambda url, params=None: {"ok": "yahoo" in url, "ms": 5, "error": "blocked"})
+    assert client.get("/api/admin/status").status_code == 401
+    j = client.get("/api/admin/status", headers={"X-Admin-Password": "pw"}).json()
+    assert len(j["sources"]) == 3 and sum(v["ok"] for v in j["sources"].values()) == 1
+    assert {"access_token", "channel_secret", "to", "enabled"} <= set(j["line"])

@@ -141,3 +141,5 @@ tr.reasons ul { margin: 0; padding-left: 18px; }
 .alloc-row .fill { height: 100%; border-radius: 4px; }
 .alloc-row .w { text-align: right; font-variant-numeric: tabular-nums; }
 #picks-table .tag { display: inline-block; white-space: nowrap; margin: 2px 0; }
+
+.toast { white-space: pre-line; }

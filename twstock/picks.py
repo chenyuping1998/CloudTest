@@ -202,11 +202,15 @@ def format_message(result: dict) -> str:
     return "\n".join(lines)
 
 
-def safe_compute(use_demo: bool = False, retries: int = 2) -> dict | None:
+def safe_compute(use_demo: bool = False, retries: int = 2, raise_last: bool = False) -> dict | None:
     for i in range(retries + 1):
         try:
             return compute(use_demo=use_demo)
         except Exception:  # noqa: BLE001
             log.exception("每日精選計算失敗（第 %d 次）", i + 1)
+            if i == retries:
+                if raise_last:
+                    raise
+                return None
             time.sleep(30 * (i + 1))
     return None

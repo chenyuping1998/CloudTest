@@ -50,7 +50,7 @@ def test_push_once_per_day(monkeypatch):
     monkeypatch.setattr(notifier, "_picks_sent", None)
     monkeypatch.setattr(notifier, "send_all", lambda text: sent.append(text) or {"telegram": True, "line": False})
     today = datetime.now(TZ).strftime("%Y-%m-%d")
-    monkeypatch.setattr(picks, "safe_compute", lambda use_demo=False, retries=2: {
+    monkeypatch.setattr(picks, "safe_compute", lambda **kw: {
         "date": today, "picks": [{"code": "2330", "name": "台積電", "close": 1000, "day_change_pct": 1, "reasons": ["均線多頭排列"], "risks": []}],
         "source": "twse"})
     r = notifier.push_daily_picks()
@@ -63,7 +63,7 @@ def test_push_once_per_day(monkeypatch):
 def test_stale_data_not_pushed(monkeypatch):
     sent = []
     monkeypatch.setattr(notifier, "send_all", lambda text: sent.append(text) or {})
-    monkeypatch.setattr(picks, "safe_compute", lambda use_demo=False, retries=2: {"date": "2026-01-01", "picks": [], "source": "twse"})
+    monkeypatch.setattr(picks, "safe_compute", lambda **kw: {"date": "2026-01-01", "picks": [], "source": "twse"})
     notifier.push_daily_picks()
     assert sent == []
     notifier.push_daily_picks(force=True)

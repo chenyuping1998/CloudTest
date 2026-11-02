@@ -32,17 +32,32 @@ def market_open(now: datetime | None = None) -> bool:
     return now.weekday() < 5 and 9 * 60 <= minutes <= 13 * 60 + 35
 
 
+telegram_error: str | None = None
+picks_error: str | None = None
+last_picks_push: dict | None = None
+
+
 def send_telegram(text: str) -> bool:
-    token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+    global telegram_error
+    token, chat = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip(), os.environ.get("TELEGRAM_CHAT_ID", "").strip()
     if not token or not chat:
+        telegram_error = "未設定 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID"
         return False
     try:
         r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
                           json={"chat_id": chat, "text": text}, timeout=10)
+        telegram_error = None if r.ok else f"Telegram 失敗（HTTP {r.status_code}）：{r.text[:200]}"
         return r.ok
     except requests.RequestException as e:
-        log.warning("Telegram 推播失敗：%s", e)
+        telegram_error = f"Telegram 連線失敗：{D.friendly_error(e)}"
+        log.warning(telegram_error)
         return False
+
+
+def send_errors(result: dict[str, bool]) -> dict[str, str]:
+    """回傳推播失敗管道的原因（成功的管道不列出）。"""
+    errs = {"telegram": telegram_error, "line": line_bot.last_error}
+    return {k: v for k, v in errs.items() if not result.get(k) and v}
 
 
 def send_all(text: str) -> dict[str, bool]:
@@ -77,9 +92,13 @@ def picks_due(now: datetime | None = None) -> bool:
 
 def push_daily_picks(force: bool = False) -> dict | None:
     """計算並推播每日精選。資料日期距今超過 4 天（連假）時不推播，除非 force。"""
-    global _picks_sent
-    result = picks.safe_compute(use_demo=D.SOURCE == "demo", retries=0 if force else 2)
-    if result is None:
+    global _picks_sent, picks_error, last_picks_push
+    try:
+        result = picks.safe_compute(use_demo=D.SOURCE == "demo", retries=0 if force else 2, raise_last=True)
+        picks_error = None
+    except Exception as e:  # noqa: BLE001
+        picks_error = f"每日精選計算失敗：{e}"
+        last_picks_push = {"at": datetime.now(TZ).strftime("%Y-%m-%d %H:%M"), "ok": False, "error": picks_error}
         return None
     _picks_sent = datetime.now(TZ).strftime("%Y-%m-%d")
     stale = (datetime.now(TZ).date() - date.fromisoformat(result["date"])).days > 4
@@ -87,6 +106,9 @@ def push_daily_picks(force: bool = False) -> dict | None:
         log.info("每日精選：資料日期 %s 過舊（可能為連假），今日不推播", result["date"])
         return result
     result["sent"] = send_all(picks.format_message(result))
+    result["errors"] = send_errors(result["sent"])
+    last_picks_push = {"at": datetime.now(TZ).strftime("%Y-%m-%d %H:%M"), "ok": any(result["sent"].values()),
+                       "date": result["date"], "sent": result["sent"], "errors": result["errors"]}
     return result
 
 

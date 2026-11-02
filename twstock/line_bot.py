@@ -50,16 +50,43 @@ def enabled() -> bool:
     return bool(_token()) and (bool(os.environ.get("LINE_TO")) or os.environ.get("LINE_BROADCAST") == "1")
 
 
+last_error: str | None = None
+
+_HINTS = {
+    400: "請求內容錯誤（常見原因：LINE_TO 的 ID 錯誤、機器人不在該群組，或對方尚未加機器人好友）",
+    401: "Channel access token 無效（請確認 LINE_CHANNEL_ACCESS_TOKEN 是 Messaging API 分頁中 Issue 的長期 token）",
+    403: "沒有權限使用此 API",
+    429: "超過每月免費訊息額度或請求太頻繁",
+}
+
+
 def _post(path: str, payload: dict) -> bool:
+    global last_error
     try:
         r = requests.post(f"{API}/{path}", json=payload, timeout=10,
                           headers={"Authorization": f"Bearer {_token()}"})
         if not r.ok:
-            log.warning("LINE %s 失敗：%s %s", path, r.status_code, r.text[:200])
+            try:
+                detail = r.json().get("message", "")
+            except ValueError:
+                detail = r.text[:200]
+            last_error = f"LINE {path} 失敗（HTTP {r.status_code}）：{_HINTS.get(r.status_code, '')} {detail}".strip()
+            log.warning(last_error)
+        else:
+            last_error = None
         return r.ok
     except requests.RequestException as e:
-        log.warning("LINE %s 失敗：%s", path, e)
+        last_error = f"LINE {path} 連線失敗：{D.friendly_error(e)}"
+        log.warning(last_error)
         return False
+
+
+def status() -> dict:
+    return {
+        "access_token": bool(_token()), "channel_secret": bool(os.environ.get("LINE_CHANNEL_SECRET", "").strip()),
+        "to": [t.strip()[:6] + "…" for t in os.environ.get("LINE_TO", "").split(",") if t.strip()],
+        "broadcast": os.environ.get("LINE_BROADCAST") == "1", "enabled": enabled(), "last_error": last_error,
+    }
 
 
 def _messages(text: str) -> list[dict]:
@@ -68,7 +95,10 @@ def _messages(text: str) -> list[dict]:
 
 def push(text: str) -> bool:
     """推播給 LINE_TO（或廣播給所有好友）。未設定時回傳 False。"""
+    global last_error
     if not enabled():
+        last_error = ("未設定 LINE_CHANNEL_ACCESS_TOKEN" if not _token()
+                      else "未設定推播對象：請設定 LINE_TO（userId / groupId）或 LINE_BROADCAST=1")
         return False
     if os.environ.get("LINE_BROADCAST") == "1":
         return _post("broadcast", {"messages": _messages(text)})

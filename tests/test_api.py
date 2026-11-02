@@ -84,3 +84,13 @@ def test_notifier_market_hours():
     assert market_open(datetime(2026, 9, 28, 10, 0, tzinfo=TZ))       # 週一盤中
     assert not market_open(datetime(2026, 9, 28, 14, 0, tzinfo=TZ))   # 收盤後
     assert not market_open(datetime(2026, 9, 27, 10, 0, tzinfo=TZ))   # 週日
+
+
+def test_friendly_error():
+    import requests
+    from twstock.data import friendly_error
+    assert friendly_error(requests.exceptions.ConnectTimeout()) == "連線逾時"
+    assert "無法連線" in friendly_error(requests.exceptions.ProxyError("Tunnel connection failed: 403"))
+    resp = requests.Response()
+    resp.status_code = 403
+    assert "封鎖" in friendly_error(requests.exceptions.HTTPError(response=resp))

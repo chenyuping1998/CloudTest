@@ -31,7 +31,7 @@ let toastTimer;
 function toast(msg, error = false) {
   const t = $('#toast');
   t.textContent = msg; t.className = `toast${error ? ' error' : ''}`; t.hidden = false;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 4000);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), error ? 12000 : 4000);
 }
 
 async function busy(btn, fn) {
@@ -373,14 +373,40 @@ function initMonitor() {
     try { await api(`/api/alerts/${b.dataset.alert}`, { method: 'DELETE' }); loadAlerts(); } catch (err) { toast(err.message, true); }
   });
   $('#refresh-now').addEventListener('click', loadMonitor);
+  const channelName = (k) => (k === 'line' ? 'LINE' : 'Telegram');
+  const okChannels = (r) => ['telegram', 'line'].filter((k) => r[k]).map(channelName);
+  const errText = (errors) => Object.entries(errors || {}).map(([k, v]) => `${channelName(k)}：${v}`).join('\n');
   $('#push-picks').addEventListener('click', (e) => busy(e.target, async () => {
+    toast('計算今日精選中…首次可能需要 1～2 分鐘，請勿關閉頁面');
     const r = await api('/api/admin/push-picks', { method: 'POST' });
-    const ok = Object.entries(r.sent || {}).filter(([, v]) => v).map(([k]) => (k === 'line' ? 'LINE' : 'Telegram'));
-    toast(ok.length ? `已推播今日精選到 ${ok.join('、')}` : '已計算今日精選，但沒有設定成功的推播管道', !ok.length);
+    const ok = okChannels(r.sent || {});
+    const err = errText(r.errors);
+    if (ok.length) toast(`已推播今日精選到 ${ok.join('、')}${err ? `\n未成功：\n${err}` : ''}`, !!err);
+    else toast(`已算出今日精選，但推播失敗：\n${err || '沒有設定任何推播管道'}`, true);
   }));
   $('#test-notify').addEventListener('click', (e) => busy(e.target, async () => {
     const r = await api('/api/admin/test-notify', { method: 'POST' });
-    toast(`已送出：${Object.entries(r).filter(([, ok]) => ok).map(([k]) => (k === 'line' ? 'LINE' : 'Telegram')).join('、')}`);
+    const err = errText(r.errors);
+    toast(`已送出：${okChannels(r).join('、')}${err ? `\n未成功：\n${err}` : ''}`, !!err);
+  }));
+  $('#sys-status').addEventListener('click', (e) => busy(e.target, async () => {
+    const r = await api('/api/admin/status');
+    const mark = (ok) => (ok ? '✅' : '❌');
+    const item = (ok, text) => `<li class="sugg"><span>${mark(ok)}</span><span>${text}</span></li>`;
+    const lp = r.picks.last_push;
+    const line = r.line;
+    $('#status-list').innerHTML = [
+      ...Object.entries(r.sources).map(([name, v]) => item(v.ok, `${esc(name)}　${v.ok ? `${v.ms} ms` : `連線失敗：${esc(v.error || `HTTP ${v.status}`)}`}`)),
+      item(!r.offline_fallback, r.offline_fallback ? '目前資料來源連線失敗，網站暫時顯示「示範資料」（推播不會使用示範資料）' : `資料模式：${esc(r.source_mode)}`),
+      item(line.access_token, `LINE access token ${line.access_token ? '已設定' : '未設定'}`),
+      item(line.channel_secret, `LINE channel secret ${line.channel_secret ? '已設定' : '未設定（機器人無法回話）'}`),
+      item(line.enabled, line.broadcast ? 'LINE 推播對象：所有好友（廣播）' : line.to.length ? `LINE 推播對象：${line.to.map(esc).join('、')}` : 'LINE 推播對象未設定（LINE_TO）'),
+      ...(line.last_error ? [item(false, `LINE 最近錯誤：${esc(line.last_error)}`)] : []),
+      item(r.telegram.configured, `Telegram ${r.telegram.configured ? '已設定' : '未設定'}${r.telegram.last_error && r.telegram.configured ? `（最近錯誤：${esc(r.telegram.last_error)}）` : ''}`),
+      item(r.picks.enabled, `每日精選：週一至週五 ${esc(r.picks.time)} 推播｜伺服器時間 ${esc(r.server_time)}`),
+      lp ? item(lp.ok, `最近一次精選推播（${esc(lp.at)}）：${lp.ok ? '成功' : esc(lp.error || errText(lp.errors) || '失敗')}`) : item(true, '尚未推播過每日精選（伺服器重啟後會清空紀錄）'),
+    ].join('');
+    $('#status-panel').hidden = false;
   }));
   $('#notify-btn').addEventListener('click', async () => {
     if (!window.Notification) return toast('此瀏覽器不支援桌面通知', true);
