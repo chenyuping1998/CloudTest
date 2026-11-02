@@ -94,3 +94,10 @@ def test_friendly_error():
     resp = requests.Response()
     resp.status_code = 403
     assert "封鎖" in friendly_error(requests.exceptions.HTTPError(response=resp))
+
+
+def test_index_busts_asset_cache():
+    from twstock.main import ASSET_VERSION
+    r = client.get("/")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-cache"
+    assert f"/static/app.js?v={ASSET_VERSION}" in r.text and f"/static/style.css?v={ASSET_VERSION}" in r.text

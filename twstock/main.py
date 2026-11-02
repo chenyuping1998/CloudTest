@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 from datetime import datetime
@@ -18,7 +19,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -415,6 +416,20 @@ def screen(req: ScreenRequest):
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
+def _asset_version() -> str:
+    """依前端檔案內容產生版本號，部署新版時瀏覽器會自動抓新檔案。"""
+    h = hashlib.sha1()
+    for name in ("app.js", "style.css"):
+        h.update((STATIC / name).read_bytes())
+    return h.hexdigest()[:10]
+
+
+ASSET_VERSION = _asset_version()
+
+
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for name in ("app.js", "style.css"):
+        html = html.replace(f"/static/{name}\"", f"/static/{name}?v={ASSET_VERSION}\"")
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
