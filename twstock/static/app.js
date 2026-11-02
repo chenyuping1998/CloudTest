@@ -86,6 +86,7 @@ function showTab(name) {
   if (name === 'monitor') loadMonitor();
   if (name === 'analysis' && !state.history) loadAnalysis();
   if (name === 'portfolio' && pfDirty) loadPortfolio();
+  if (name === 'screener' && !picksLoaded) loadPicks();
 }
 
 // ================================================================ 個股分析
@@ -372,6 +373,11 @@ function initMonitor() {
     try { await api(`/api/alerts/${b.dataset.alert}`, { method: 'DELETE' }); loadAlerts(); } catch (err) { toast(err.message, true); }
   });
   $('#refresh-now').addEventListener('click', loadMonitor);
+  $('#push-picks').addEventListener('click', (e) => busy(e.target, async () => {
+    const r = await api('/api/admin/push-picks', { method: 'POST' });
+    const ok = Object.entries(r.sent || {}).filter(([, v]) => v).map(([k]) => (k === 'line' ? 'LINE' : 'Telegram'));
+    toast(ok.length ? `已推播今日精選到 ${ok.join('、')}` : '已計算今日精選，但沒有設定成功的推播管道', !ok.length);
+  }));
   $('#test-notify').addEventListener('click', (e) => busy(e.target, async () => {
     const r = await api('/api/admin/test-notify', { method: 'POST' });
     toast(`已送出：${Object.entries(r).filter(([, ok]) => ok).map(([k]) => (k === 'line' ? 'LINE' : 'Telegram')).join('、')}`);
@@ -631,6 +637,25 @@ function initBacktest() {
 }
 
 // ================================================================ 條件選股
+let picksLoaded = false;
+
+async function loadPicks() {
+  picksLoaded = true;
+  $('#picks-table').innerHTML = '<tbody><tr><td class="muted">計算中…（首次需下載近 10 日全市場資料，可能需要數十秒）</td></tr></tbody>';
+  try {
+    const r = await api('/api/picks');
+    if (r.source === 'demo') setSource('demo');
+    $('#picks-meta').textContent = `資料日期 ${r.date}｜符合流動性條件 ${r.eligible} 檔${r.source === 'demo' ? '｜示範資料' : ''}`;
+    $('#picks-methods').textContent = `綜合篩選法：${r.methods.map((m) => m.name).join('、')}。排除 10 日均量 < 1000 張或股價 < 10 元。僅供參考，不構成投資建議。`;
+    $('#picks-table').innerHTML = `<thead><tr><th>代號</th><th>名稱</th><th>收盤</th><th>當日</th><th>10日</th><th>外資(張)</th><th>投信(張)</th><th>分數</th><th style="text-align:left">原因</th><th></th></tr></thead>
+      <tbody>${r.picks.map((p) => `<tr class="clickable" data-code="${esc(p.code)}"><td>${esc(p.code)}</td><td>${esc(p.name)}</td><td>${num(p.close)}</td>
+        <td class="${cls(p.day_change_pct)}">${p.day_change_pct > 0 ? '+' : ''}${num(p.day_change_pct)}%</td><td class="${cls(p.change_pct)}">${p.change_pct > 0 ? '+' : ''}${num(p.change_pct)}%</td>
+        <td class="${cls(p.foreign_net)}">${signed(p.foreign_net, 0)}</td><td class="${cls(p.trust_net)}">${signed(p.trust_net, 0)}</td><td>${p.score}</td>
+        <td style="text-align:left;white-space:normal">${p.reasons.map((t) => `<span class="tag bull">${esc(t)}</span>`).join(' ')}${p.risks.map((t) => ` <span class="tag reduce">⚠ ${esc(t)}</span>`).join('')}</td>
+        <td><button class="ghost small" data-watch="${esc(p.code)}">＋自選</button></td></tr>`).join('') || '<tr><td colspan="10" class="muted">今天沒有符合條件的股票</td></tr>'}</tbody>`;
+  } catch (e) { picksLoaded = false; $('#picks-table').innerHTML = `<tbody><tr><td class="muted">載入失敗：${esc(e.message)}</td></tr></tbody>`; }
+}
+
 const SC_OPS = ['>', '>=', '<', '<=', 'between'];
 const SC_OP_LABEL = { '>': '>', '>=': '≥', '<': '<', '<=': '≤', between: '介於' };
 const PRESETS = [
@@ -673,6 +698,10 @@ function initScreener() {
     busy($('#sc-run'), runScreen);
   });
   $('#sc-run').addEventListener('click', (e) => busy(e.target, runScreen));
+  $('#picks-table').addEventListener('click', (e) => {
+    const w = e.target.closest('[data-watch]'); if (w) { e.stopPropagation(); return addToWatch(w.dataset.watch); }
+    const tr = e.target.closest('tr[data-code]'); if (tr) { showTab('analysis'); loadAnalysis(tr.dataset.code); }
+  });
   $('#sc-table').addEventListener('click', (e) => {
     const w = e.target.closest('[data-watch]'); if (w) { e.stopPropagation(); return addToWatch(w.dataset.watch); }
     const th = e.target.closest('th[data-sort]');

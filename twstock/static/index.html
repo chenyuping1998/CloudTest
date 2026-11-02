@@ -68,7 +68,9 @@
           </form>
           <ul id="alert-list" class="list"></ul>
           <p class="muted small-note" style="margin-top:12px">警示觸發時會推播到 Telegram / LINE（需在伺服器設定環境變數）。
-            <button id="test-notify" class="ghost small" type="button">發送測試推播</button></p>
+            <button id="test-notify" class="ghost small" type="button">發送測試推播</button>
+            <button id="push-picks" class="ghost small" type="button">立即推播今日精選</button></p>
+          <p class="muted small-note">每日精選會在週一至週五 08:30 自動推播。</p>
         </div>
       </div>
       <div class="card" id="triggered-card" hidden>
@@ -198,6 +200,11 @@
 
   <!-- ============================== 條件選股 -->
   <section id="tab-screener" class="tab">
+    <div class="card" id="picks-card">
+      <h3>今日精選 5 檔 <span id="picks-meta" class="muted" style="font-weight:400;font-size:12px"></span></h3>
+      <p class="muted small-note" id="picks-methods"></p>
+      <div class="table-wrap"><table id="picks-table" class="data"></table></div>
+    </div>
     <div class="screener">
       <aside class="card">
         <h3>選股條件</h3>

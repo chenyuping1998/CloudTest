@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import analysis, backtest as bt, data as D, indicators as ind, line_bot, monitor, notifier, portfolio, screener
+from . import analysis, backtest as bt, data as D, indicators as ind, line_bot, monitor, notifier, picks, portfolio, screener
 
 STATIC = Path(__file__).parent / "static"
 # 預設為公開網站：瀏覽、分析、回測、選股都不需登入。
@@ -314,6 +314,27 @@ def test_notify(_: None = Depends(require_admin_or_local)):
     result = notifier.send_all("✅ 台股監控平台測試推播：收到這則訊息代表設定成功")
     if not any(result.values()):
         raise HTTPException(400, "沒有任何推播管道設定成功，請檢查 Telegram / LINE 環境變數")
+    return result
+
+
+@app.get("/api/picks")
+def daily_picks():
+    """每日精選（同一資料日期只計算一次）。"""
+    offline = D.SOURCE == "auto" and time.time() < D._offline_until
+    try:
+        return picks.compute(use_demo=D.SOURCE == "demo" or offline)
+    except D.DataError as e:
+        if D.SOURCE == "auto":
+            D._offline_until = time.time() + 300
+            return picks.compute(use_demo=True)
+        raise HTTPException(503, str(e)) from e
+
+
+@app.post("/api/admin/push-picks")
+def push_picks_now(_: None = Depends(require_admin_or_local)):
+    result = notifier.push_daily_picks(force=True)
+    if result is None:
+        raise HTTPException(503, "每日精選計算失敗，請稍後再試")
     return result
 
 

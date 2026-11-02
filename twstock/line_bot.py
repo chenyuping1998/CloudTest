@@ -10,6 +10,7 @@ LINE Notify 已於 2025-03-31 停止服務，因此改用 Messaging API。
 
 對話指令（回覆訊息不計入每月推播額度）：
 - 「2330」或「查 2330」：報價與技術訊號
+- 「精選」/「推薦」：今日精選 5 檔
 - 「id」：回覆目前聊天室的 userId / groupId（設定 LINE_TO 用）
 - 「說明」/「help」：指令列表
 """
@@ -27,6 +28,7 @@ import requests
 from . import analysis
 from . import data as D
 from . import indicators as ind
+from . import picks
 
 log = logging.getLogger("twstock.line")
 API = "https://api.line.me/v2/bot/message"
@@ -34,6 +36,7 @@ MAX_TEXT = 5000  # LINE 單則文字上限
 
 HELP = ("📈 台股機器人指令\n"
         "• 輸入股票代號（例如 2330）：報價與技術訊號\n"
+        "• 精選：今日精選 5 檔與原因\n"
         "• id：顯示這個聊天室的 ID（設定推播對象用）\n"
         "• 說明：顯示本說明\n"
         "盤中警示觸發時會自動推播。資訊僅供參考，不構成投資建議。")
@@ -134,6 +137,11 @@ def handle_text(text: str, source: dict) -> str | None:
         return f"這個{label}的 ID：\n{sid}\n\n把它填到環境變數 LINE_TO 即可接收警示推播。"
     if low in ("help", "說明", "?", "？", "指令"):
         return HELP
+    if t in ("精選", "推薦", "今日精選", "選股"):
+        try:
+            return picks.format_message(picks.compute(use_demo=D.SOURCE == "demo"))
+        except Exception as e:  # noqa: BLE001
+            return f"今日精選計算失敗：{e}"
     m = CODE_RE.match(t)
     if m:
         try:

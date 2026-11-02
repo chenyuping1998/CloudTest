@@ -13,6 +13,7 @@
 | 我的持股 | 輸入持股（代號、股數、平均成本，存在各自的瀏覽器），計算市值、未實現損益（含預估賣出費用）、今日損益、資產配置比重；每檔給出「停損檢視 / 考慮減碼・停利 / 續抱觀察 / 可考慮加碼」建議與理由（技術面多空分數、ATR 移動停損價、RSI 過熱）；組合層級提示單一持股比重過高、集中度、高相關持股、Beta、近一年最大回撤，並以目前配置回推近一年走勢與 0050 比較。支援匯出 / 匯入備份 |
 | 個股分析 | K 線（紅漲綠跌）＋ MA5/10/20/60/120/240、布林通道，成交量、KD、MACD、RSI 副圖（同步縮放、十字線數值）；技術訊號摘要與多空分數；區間報酬、52 週高低、波動率；**近 20 日三大法人買賣超** |
 | 策略回測 | 內建均線交叉、RSI、MACD、KD、布林通道、通道突破、買進持有；台股手續費（可設折扣、最低 20 元）與證交稅（股票 0.3%、ETF 0.1%）、零股/整張、停損停利；隔日開盤成交避免未來函數。輸出總報酬、CAGR、MDD、夏普、Sortino、勝率、獲利因子、淨值/回撤曲線、買賣點與交易明細；**參數格點最佳化** |
+| 每日精選 | 綜合投信認養、法人同步買超、量價突破、均線多頭、技術轉強等常見選股法（並對過熱、追高、跌破季線扣分），每天挑出 5 檔並附原因。週一至週五 08:30 自動推播到 LINE / Telegram，也顯示在「條件選股」頁上方，LINE 傳「精選」可隨時查詢 |
 | 條件選股 | 勾選任意條件組合並指定統計天數（1~60 日），依指定欄位排序取前 N 檔。條件包含：外資 / 投信 / 自營商 / 三大法人 N 日買賣超、買超天數、連續買超天數、買超佔成交量比、收盤價、漲跌幅、均量、均成交值、量比；技術面（站上月線/季線、多頭排列、KD/MACD 黃金交叉、RSI 區間、創新高）。內建常用範本，例如「投信近 10 日買超前 10」 |
 | 走勢比較 | 多檔股票累積報酬比較 |
 
@@ -120,6 +121,8 @@ docker run -d --restart=always -p 8000:8000 -v twstock-data:/data -e TWSTOCK_PAS
 | `TWSTOCK_CACHE_TTL` | `1800` | 日線快取秒數 |
 | `TWSTOCK_BACKGROUND_MONITOR` | `1` | 是否啟用背景警示檢查 |
 | `TWSTOCK_MONITOR_INTERVAL` | `60` | 背景檢查間隔（秒） |
+| `TWSTOCK_DAILY_PICKS` | `1` | 是否在開盤前推播每日精選 |
+| `TWSTOCK_PICKS_TIME` | `08:30` | 每日精選推播時間（台北時間，週一至週五，需早於 09:00） |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | | Telegram 推播 |
 | `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` | | LINE 機器人（Messaging API） |
 | `LINE_TO` | | LINE 推播對象（userId / groupId，逗號分隔） |
@@ -148,6 +151,7 @@ twstock/
   portfolio.py    持股損益分析與建議
   notifier.py     背景警示檢查與推播（Telegram / LINE）
   line_bot.py     LINE 機器人：推播、webhook 對話查詢
+  picks.py        每日精選（綜合選股法計分）
   static/         前端（index.html、app.js、style.css、vendor/）
 tests/            pytest 測試
 Dockerfile, render.yaml, fly.toml   部署設定
