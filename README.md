@@ -50,7 +50,12 @@ TWSTOCK_SOURCE=demo uvicorn twstock.main:app
 3. 填入環境變數 `TWSTOCK_PASSWORD`（管理員密碼，用來設定警示），選填 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`。
 4. 部署完成後會得到 `https://twstock-xxxx.onrender.com` 公開網址，任何人都可以直接進入。
 
-> Render 免費方案閒置 15 分鐘會休眠且沒有持久化磁碟，`render.yaml` 預設使用 starter 方案（約 US$7/月）以常駐運作並保存自選股與警示。之後 push 到 main 會自動重新部署。
+> `render.yaml` 使用 **免費方案**，有兩個限制：
+>
+> 1. **閒置 15 分鐘會休眠**，休眠時背景警示不會運作，下次開網頁要等約 1 分鐘喚醒。解法：到 [UptimeRobot](https://uptimerobot.com) 或 [cron-job.org](https://cron-job.org)（免費）設定每 10 分鐘請求一次 `https://你的網址/healthz`。免費方案每月 750 小時，足夠一個服務整月不休眠。
+> 2. **沒有持久化磁碟**：伺服器重啟或重新部署後，伺服器警示要重新設定，選股快取也會清空（第一次選股需重新下載）。自選股存在訪客瀏覽器，不受影響。
+>
+> 需要資料永久保存時，可改用付費 starter 方案並加上 disk（見 `render.yaml` 註解），或改用 Oracle Cloud 永久免費主機以 Docker 執行。之後 push 到部署的分支會自動重新部署。
 
 ### 方式 B：Fly.io（東京機房，延遲低）
 

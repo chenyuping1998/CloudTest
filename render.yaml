@@ -1,10 +1,13 @@
 # Render Blueprint：在 Render 後台選 New → Blueprint 並指向此 repo 即可部署。
-# 需要付費方案（starter 以上）才會 24 小時不休眠，並可掛載持久化磁碟保存自選股與警示。
+# 使用免費方案：閒置 15 分鐘會休眠、沒有持久化磁碟。
+# - 防止休眠：用 UptimeRobot / cron-job.org 每 10 分鐘請求一次 https://<你的網址>/healthz
+# - 伺服器重啟或重新部署後，警示設定與資料快取會清空（自選股存在訪客瀏覽器，不受影響）
+# 想要資料永久保存：改成 plan: starter（付費）並加上 disk 設定（mountPath: /data）。
 services:
   - type: web
     name: twstock
     runtime: docker
-    plan: starter
+    plan: free
     region: singapore
     healthCheckPath: /healthz
     autoDeploy: true
@@ -15,7 +18,3 @@ services:
         sync: false   # 選填：警示推播
       - key: TELEGRAM_CHAT_ID
         sync: false
-    disk:
-      name: twstock-data
-      mountPath: /data
-      sizeGB: 1
