@@ -43,7 +43,7 @@ HELP = ("📈 台股機器人指令\n"
 
 
 def _token() -> str:
-    return os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+    return os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip()  # 複製時常多帶空白或換行
 
 
 def enabled() -> bool:
@@ -91,11 +91,19 @@ def reply(reply_token: str, text: str) -> bool:
 
 
 def verify_signature(body: bytes, signature: str) -> bool:
-    secret = os.environ.get("LINE_CHANNEL_SECRET", "")
-    if not secret or not signature:
+    secret = os.environ.get("LINE_CHANNEL_SECRET", "").strip()
+    if not secret:
+        log.warning("LINE webhook 驗證失敗：伺服器未設定環境變數 LINE_CHANNEL_SECRET")
+        return False
+    if not signature:
+        log.warning("LINE webhook 驗證失敗：請求沒有 X-Line-Signature（不是 LINE 送來的請求）")
         return False
     digest = hmac.new(secret.encode(), body, hashlib.sha256).digest()
-    return hmac.compare_digest(base64.b64encode(digest).decode(), signature)
+    if not hmac.compare_digest(base64.b64encode(digest).decode(), signature.strip()):
+        log.warning("LINE webhook 驗證失敗：簽章不符，請確認 LINE_CHANNEL_SECRET 是此 Channel 的 Channel secret"
+                    "（Basic settings 頁面），不是 Channel access token")
+        return False
+    return True
 
 
 # ---------------------------------------------------------------- 對話

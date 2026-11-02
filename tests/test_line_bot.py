@@ -86,3 +86,9 @@ def test_test_notify_endpoint(sent, monkeypatch):
     assert client.post("/api/admin/test-notify", headers=h).status_code == 400  # 尚未設定推播對象
     monkeypatch.setenv("LINE_TO", "Uaaa")
     assert client.post("/api/admin/test-notify", headers=h).json() == {"telegram": False, "line": True}
+
+
+def test_secret_with_whitespace(sent, monkeypatch):
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "  sec\n")
+    body = b'{"destination":"Uxxx","events":[]}'  # LINE 後台按 Verify 時送的內容
+    assert client.post("/line/webhook", content=body, headers={"x-line-signature": _sign(body)}).status_code == 200
