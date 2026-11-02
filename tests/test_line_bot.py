@@ -92,3 +92,8 @@ def test_secret_with_whitespace(sent, monkeypatch):
     monkeypatch.setenv("LINE_CHANNEL_SECRET", "  sec\n")
     body = b'{"destination":"Uxxx","events":[]}'  # LINE 後台按 Verify 時送的內容
     assert client.post("/line/webhook", content=body, headers={"x-line-signature": _sign(body)}).status_code == 200
+
+
+def test_join_group_replies_group_id(sent):
+    line_bot.handle_events({"events": [{"type": "join", "replyToken": "r9", "source": {"type": "group", "groupId": "Cabc123"}}]})
+    assert sent[-1][0] == "reply" and "Cabc123" in sent[-1][1]["messages"][0]["text"]

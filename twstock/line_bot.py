@@ -164,6 +164,12 @@ def handle_events(payload: dict) -> None:
         if ev.get("type") == "follow" and ev.get("replyToken"):
             reply(ev["replyToken"], "感謝加入！\n" + HELP)
             continue
+        if ev.get("type") == "join" and ev.get("replyToken"):  # 被邀請進群組 / 多人聊天室
+            src = ev.get("source") or {}
+            kind = src.get("type", "group")
+            gid = src.get(f"{kind}Id", "")
+            reply(ev["replyToken"], f"大家好！這個群組的 ID：\n{gid}\n\n把它填到環境變數 LINE_TO，盤中警示與每日精選就會推播到這裡。\n\n" + HELP)
+            continue
         msg = ev.get("message") or {}
         if ev.get("type") != "message" or msg.get("type") != "text" or not ev.get("replyToken"):
             continue
