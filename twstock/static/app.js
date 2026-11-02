@@ -85,6 +85,7 @@ function showTab(name) {
   store.set('tab', name);
   if (name === 'monitor') loadMonitor();
   if (name === 'analysis' && !state.history) loadAnalysis();
+  if (name === 'portfolio' && pfDirty) loadPortfolio();
 }
 
 // ================================================================ 個股分析
@@ -230,6 +231,7 @@ function initAnalysis() {
     Math.max(state.years, 1.5) > Math.max(prev, 1.5) ? loadAnalysis() : renderAnalysis();
   });
   $('#to-watch').addEventListener('click', () => addToWatch(state.code));
+  $('#to-holding').addEventListener('click', () => { showTab('portfolio'); $('#pf-code').value = state.code; $('#pf-shares').focus(); });
   $('#to-backtest').addEventListener('click', () => { $('#bt-code').value = state.code; showTab('backtest'); });
 }
 
@@ -379,6 +381,146 @@ function initMonitor() {
   }, 60_000);
   renderAdmin();
   tryAdmin(admin.password, true); // 已存的密碼，或本機未設密碼時自動取得管理權限
+}
+
+// ================================================================ 我的持股
+const ACTION_ORDER = { stop: 0, reduce: 1, hold: 2, add: 3 };
+const SUGG_TAG = { danger: ['stop', '注意'], warn: ['reduce', '提醒'], info: ['hold', '資訊'], good: ['add', '良好'] };
+const getHoldings = () => store.get('holdings', []);
+let pfDirty = true;
+
+function saveHoldings(list) {
+  store.set('holdings', list);
+  pfDirty = true;
+  loadPortfolio();
+}
+
+function upsertHolding(code, shares, cost) {
+  code = String(code || '').trim().toUpperCase();
+  if (!code || !(shares > 0) || !(cost > 0)) return toast('請輸入代號、股數與成本', true);
+  const list = getHoldings();
+  const h = list.find((x) => x.code === code);
+  if (h) { // 加碼：合併成加權平均成本
+    const total = h.shares + shares;
+    h.cost = +((h.cost * h.shares + cost * shares) / total).toFixed(4);
+    h.shares = total;
+  } else {
+    if (list.length >= 50) return toast('持股最多 50 檔', true);
+    list.push({ code, shares, cost });
+  }
+  saveHoldings(list);
+  toast(h ? `已合併 ${code}，平均成本 ${num(h.cost)}` : `已新增 ${code}`);
+}
+
+async function loadPortfolio() {
+  const holdings = getHoldings();
+  $('#pf-empty').hidden = holdings.length > 0;
+  $('#pf-result').hidden = holdings.length === 0;
+  if (!holdings.length) return;
+  $('#pf-metrics').innerHTML = '<div class="muted">分析中…</div>';
+  try {
+    const r = await api('/api/portfolio', { method: 'POST', body: { holdings } });
+    pfDirty = false;
+    if (r.source) setSource(r.source);
+    renderPortfolio(r);
+    r.errors.forEach((e) => toast(`${e.code}：${e.error}`, true));
+  } catch (e) { $('#pf-metrics').innerHTML = ''; toast(e.message, true); }
+}
+
+function renderPortfolio(r) {
+  const s = r.summary, k = r.risk || {};
+  const card = (l, v, c = '', sub = '') => `<div class="metric"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${sub}</div></div>`;
+  $('#pf-metrics').innerHTML = [
+    card('總市值', int(s.market_value), '', `成本 ${int(s.cost_value)}`),
+    card('未實現損益', signed(s.pnl, 0), cls(s.pnl), `扣除賣出費用 ${signed(s.net_pnl, 0)}`),
+    card('報酬率', `${s.return_pct > 0 ? '+' : ''}${num(s.return_pct)}%`, cls(s.return_pct)),
+    card('今日損益', signed(s.day_pnl, 0), cls(s.day_pnl), `${s.day_change_pct > 0 ? '+' : ''}${num(s.day_change_pct)}%`),
+    card('組合年化波動', k.volatility == null ? '—' : pct(k.volatility, 1), '', `Beta ${num(k.beta)}（相對 0050）`),
+    card('近一年最大回撤', k.max_drawdown == null ? '—' : pct(k.max_drawdown, 1), 'down', `近一年 ${pct(k.return_1y, 1)}｜0050 ${pct(k.benchmark_return_1y, 1)}`),
+  ].join('');
+
+  $('#pf-suggestions').innerHTML = r.suggestions.map((g) => {
+    const [c, l] = SUGG_TAG[g.level] || ['hold', '資訊'];
+    return `<li class="sugg"><span class="tag ${c}">${l}</span><span>${esc(g.text)}</span></li>`;
+  }).join('');
+
+  const byW = [...r.rows].sort((a, b) => b.weight - a.weight);
+  $('#pf-alloc').innerHTML = byW.map((x, i) => `<div class="alloc-row"><span>${esc(x.code)} ${esc(x.name)}</span>
+    <span class="track"><span class="fill" style="display:block;width:${x.weight}%;background:${PALETTE[i % PALETTE.length]}"></span></span>
+    <span class="w">${num(x.weight, 1)}%</span></div>`).join('');
+
+  const total = { pnl: 0, day: 0 };
+  $('#pf-table').innerHTML = `<thead><tr><th>代號</th><th>名稱</th><th>建議</th><th>股數</th><th>成本</th><th>現價</th><th>今日</th><th>市值</th><th>損益</th><th>報酬率</th><th>比重</th><th>停損/停利價</th><th>多空分數</th><th></th></tr></thead>
+    <tbody>${r.rows.map((x) => { total.pnl += x.pnl; total.day += x.day_pnl; return `
+      <tr class="clickable" data-pf="${esc(x.code)}"><td>${esc(x.code)}</td><td>${esc(x.name)}</td>
+        <td><span class="tag ${x.action}">${esc(x.action_label)}</span></td>
+        <td>${int(x.shares)}</td><td>${num(x.cost)}</td><td class="${cls(x.day_change_pct)}"><b>${num(x.price)}</b></td>
+        <td class="${cls(x.day_change_pct)}">${x.day_change_pct > 0 ? '+' : ''}${num(x.day_change_pct)}%</td>
+        <td>${int(x.market_value)}</td><td class="${cls(x.pnl)}">${signed(x.pnl, 0)}</td>
+        <td class="${cls(x.return_pct)}">${x.return_pct > 0 ? '+' : ''}${num(x.return_pct)}%</td>
+        <td>${num(x.weight, 1)}%</td><td>${num(x.stop_price)}</td><td>${x.score}</td>
+        <td><button class="ghost small" data-pf-edit="${esc(x.code)}">修改</button> <button class="ghost small" data-pf-del="${esc(x.code)}">刪除</button></td></tr>
+      <tr class="reasons" data-for="${esc(x.code)}" hidden><td colspan="14"><ul>${x.reasons.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+        <button class="ghost small" data-pf-analyze="${esc(x.code)}">看個股分析</button></td></tr>`; }).join('')}</tbody>`;
+
+  disposeCharts('pf');
+  if (k.dates?.length) {
+    const ch = makeChart($('#pf-chart'));
+    ch.addAreaSeries({ lineColor: C.accent, topColor: 'rgba(76,154,255,.25)', bottomColor: 'rgba(76,154,255,0)', lineWidth: 2, priceLineVisible: false }).setData(line(k.dates, k.curve));
+    if (k.benchmark_curve) ch.addLineSeries({ color: C.muted, lineWidth: 1, priceLineVisible: false }).setData(line(k.dates, k.benchmark_curve));
+    ch.timeScale().fitContent();
+    state.charts.pf = [ch];
+  }
+}
+
+function initPortfolio() {
+  $('#pf-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    upsertHolding($('#pf-code').value, +$('#pf-shares').value, +$('#pf-cost').value);
+    ['#pf-code', '#pf-shares', '#pf-cost'].forEach((id) => ($(id).value = ''));
+  });
+  $('#pf-refresh').addEventListener('click', (e) => busy(e.target, loadPortfolio));
+  $('#pf-table').addEventListener('click', (e) => {
+    const del = e.target.closest('[data-pf-del]');
+    if (del) {
+      e.stopPropagation();
+      if (confirm(`確定刪除 ${del.dataset.pfDel}？`)) saveHoldings(getHoldings().filter((h) => h.code !== del.dataset.pfDel));
+      return;
+    }
+    const edit = e.target.closest('[data-pf-edit]');
+    if (edit) {
+      e.stopPropagation();
+      const list = getHoldings(), h = list.find((x) => x.code === edit.dataset.pfEdit);
+      if (!h) return;
+      const shares = prompt(`${h.code} 股數`, h.shares); if (shares == null) return;
+      const cost = prompt(`${h.code} 每股平均成本`, h.cost); if (cost == null) return;
+      if (!(+shares > 0) || !(+cost > 0)) return toast('股數與成本必須大於 0', true);
+      h.shares = +shares; h.cost = +cost;
+      return saveHoldings(list);
+    }
+    const go = e.target.closest('[data-pf-analyze]');
+    if (go) { showTab('analysis'); return loadAnalysis(go.dataset.pfAnalyze); }
+    const tr = e.target.closest('tr[data-pf]');
+    if (tr) { const d = $(`tr.reasons[data-for="${tr.dataset.pf}"]`); d.hidden = !d.hidden; }
+  });
+  $('#pf-export').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify({ holdings: getHoldings(), watchlist: getWatchlist(), exported_at: new Date().toISOString() }, null, 2)], { type: 'application/json' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `twstock-backup-${new Date().toISOString().slice(0, 10)}.json` });
+    a.click(); URL.revokeObjectURL(a.href);
+  });
+  $('#pf-import').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    try {
+      const d = JSON.parse(await file.text());
+      const list = (d.holdings || []).filter((h) => h && h.code && +h.shares > 0 && +h.cost > 0)
+        .map((h) => ({ code: String(h.code).toUpperCase(), shares: +h.shares, cost: +h.cost }));
+      if (!list.length && !d.watchlist) throw new Error('檔案中沒有持股資料');
+      if (Array.isArray(d.watchlist)) store.set('watchlist', d.watchlist.map(String).slice(0, 30));
+      saveHoldings(list.slice(0, 50));
+      toast(`已匯入 ${list.length} 檔持股`);
+    } catch (err) { toast(`匯入失敗：${err.message}`, true); }
+    e.target.value = '';
+  });
 }
 
 // ================================================================ 回測
@@ -609,7 +751,7 @@ async function init() {
     showTab('analysis'); loadAnalysis(code);
   });
   $('#cmp-form').addEventListener('submit', (e) => { e.preventDefault(); busy($('#cmp-form button'), runCompare); });
-  initAnalysis(); initMonitor(); initBacktest(); initScreener();
+  initAnalysis(); initMonitor(); initPortfolio(); initBacktest(); initScreener();
   const tab = new URLSearchParams(location.search).get('tab') || store.get('tab', null) || 'monitor';
   showTab(tab);
   if (tab === 'compare') runCompare();

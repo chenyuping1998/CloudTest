@@ -125,3 +125,18 @@ footer { text-align: center; padding: 20px; font-size: 12px; }
   .screener aside { position: static; max-height: none; }
   main { padding: 12px; }
 }
+
+.ghost-btn { display: inline-block; border: 1px solid var(--border); border-radius: 6px; padding: 6px 14px; cursor: pointer; white-space: nowrap; }
+.ghost-btn:hover { background: var(--panel2); }
+.tag.stop { background: rgba(239,68,68,.2); color: var(--up); }
+.tag.reduce { background: rgba(245,158,11,.18); color: var(--warn); }
+.tag.hold { background: var(--panel2); color: var(--muted); }
+.tag.add { background: rgba(76,154,255,.18); color: var(--accent); }
+.sugg { display: flex; gap: 8px; align-items: flex-start; justify-content: flex-start !important; }
+.sugg .tag { flex: none; }
+tr.reasons td { text-align: left !important; white-space: normal; background: var(--panel2); color: var(--muted); font-size: 13px; }
+tr.reasons ul { margin: 0; padding-left: 18px; }
+.alloc-row { display: grid; grid-template-columns: 9em 1fr 4em; gap: 8px; align-items: center; padding: 3px 0; font-size: 13px; }
+.alloc-row .track { background: var(--panel2); border-radius: 4px; height: 10px; overflow: hidden; }
+.alloc-row .fill { height: 100%; border-radius: 4px; }
+.alloc-row .w { text-align: right; font-variant-numeric: tabular-nums; }

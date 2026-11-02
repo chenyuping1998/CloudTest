@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import analysis, backtest as bt, data as D, indicators as ind, monitor, notifier, screener
+from . import analysis, backtest as bt, data as D, indicators as ind, monitor, notifier, portfolio, screener
 
 STATIC = Path(__file__).parent / "static"
 # 預設為公開網站：瀏覽、分析、回測、選股都不需登入。
@@ -271,6 +271,26 @@ def post_alert(body: AlertBody, _: None = Depends(require_admin_or_local)):
 def del_alert(alert_id: str, _: None = Depends(require_admin_or_local)):
     monitor.delete_alert(alert_id)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- 持股
+
+class Holding(BaseModel):
+    code: str
+    shares: float = Field(gt=0)
+    cost: float = Field(gt=0)
+
+
+class PortfolioRequest(BaseModel):
+    holdings: list[Holding] = Field(max_length=portfolio.MAX_HOLDINGS)
+
+
+@app.post("/api/portfolio")
+def analyze_portfolio(req: PortfolioRequest):
+    try:
+        return portfolio.analyze([h.model_dump() for h in req.holdings])
+    except (ValueError, D.DataError) as e:
+        raise HTTPException(400, str(e)) from e
 
 
 # ---------------------------------------------------------------- 選股

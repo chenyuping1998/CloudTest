@@ -20,6 +20,7 @@
 
 <nav class="tabs">
   <button data-tab="monitor" class="active">自選監控</button>
+  <button data-tab="portfolio">我的持股</button>
   <button data-tab="analysis">個股分析</button>
   <button data-tab="backtest">策略回測</button>
   <button data-tab="screener">條件選股</button>
@@ -75,6 +76,41 @@
     </div>
   </section>
 
+  <!-- ============================== 我的持股 -->
+  <section id="tab-portfolio" class="tab">
+    <div class="card">
+      <form id="pf-form" class="inline wrap">
+        <input id="pf-code" list="stock-list" placeholder="股票代號" required style="width:8em">
+        <input id="pf-shares" type="number" min="1" step="1" placeholder="股數（1 張 = 1000 股）" required style="width:13em">
+        <input id="pf-cost" type="number" min="0.01" step="any" placeholder="每股平均成本" required style="width:9em">
+        <button>新增 / 加碼</button>
+        <span class="sep"></span>
+        <button type="button" id="pf-refresh" class="ghost">重新分析</button>
+        <button type="button" id="pf-export" class="ghost">匯出備份</button>
+        <label class="ghost-btn">匯入備份<input type="file" id="pf-import" accept="application/json" hidden></label>
+      </form>
+      <p class="muted small-note">持股只存在你這台裝置的瀏覽器中，其他人看不到。換裝置或清除瀏覽器資料前請先「匯出備份」。同一檔再次新增會自動合併成加權平均成本。</p>
+    </div>
+
+    <div id="pf-empty" class="card muted">尚未輸入持股。輸入代號、股數與平均成本後，系統會計算損益並依技術面、停損價、配置集中度與相關性給出建議。</div>
+    <div id="pf-result" hidden>
+      <div id="pf-metrics" class="metrics"></div>
+      <div class="grid2">
+        <div class="card"><h3>組合建議</h3><ul id="pf-suggestions" class="list"></ul></div>
+        <div class="card"><h3>資產配置</h3><div id="pf-alloc"></div></div>
+      </div>
+      <div class="card">
+        <h3>持股明細與個股建議 <span class="muted" style="font-weight:400;font-size:12px">點選列可查看建議理由</span></h3>
+        <div class="table-wrap"><table id="pf-table" class="data"></table></div>
+      </div>
+      <div class="card">
+        <div class="chart-label">以目前配置回推近一年走勢（起始 = 100，假設期間持股不變） <span class="legend"><span><i style="background:var(--accent)"></i>我的組合</span><span><i style="background:var(--muted)"></i>0050</span></span></div>
+        <div id="pf-chart" class="chart" style="height:260px"></div>
+      </div>
+      <p class="muted small-note">建議依技術指標與風險規則自動產生，僅供參考，不構成投資建議。未實現損益已扣除預估賣出手續費與證交稅。</p>
+    </div>
+  </section>
+
   <!-- ============================== 個股分析 -->
   <section id="tab-analysis" class="tab">
     <div id="quote-head" class="quote-head"></div>
@@ -87,6 +123,7 @@
       <span id="overlay-checks"></span>
       <span class="sep"></span>
       <button id="to-watch" class="ghost">＋自選</button>
+      <button id="to-holding" class="ghost">＋持股</button>
       <button id="to-backtest" class="ghost">回測此股</button>
     </div>
     <div class="charts">
