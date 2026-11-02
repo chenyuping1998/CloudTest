@@ -372,6 +372,10 @@ function initMonitor() {
     try { await api(`/api/alerts/${b.dataset.alert}`, { method: 'DELETE' }); loadAlerts(); } catch (err) { toast(err.message, true); }
   });
   $('#refresh-now').addEventListener('click', loadMonitor);
+  $('#test-notify').addEventListener('click', (e) => busy(e.target, async () => {
+    const r = await api('/api/admin/test-notify', { method: 'POST' });
+    toast(`已送出：${Object.entries(r).filter(([, ok]) => ok).map(([k]) => (k === 'line' ? 'LINE' : 'Telegram')).join('、')}`);
+  }));
   $('#notify-btn').addEventListener('click', async () => {
     if (!window.Notification) return toast('此瀏覽器不支援桌面通知', true);
     toast((await Notification.requestPermission()) === 'granted' ? '已開啟桌面通知' : '未取得通知權限');

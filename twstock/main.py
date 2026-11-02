@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import secrets
 import threading
@@ -14,12 +15,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pandas as pd
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import analysis, backtest as bt, data as D, indicators as ind, monitor, notifier, portfolio, screener
+from . import analysis, backtest as bt, data as D, indicators as ind, line_bot, monitor, notifier, portfolio, screener
 
 STATIC = Path(__file__).parent / "static"
 # 預設為公開網站：瀏覽、分析、回測、選股都不需登入。
@@ -91,7 +92,7 @@ def _basic_ok(request: Request) -> bool:
 @app.middleware("http")
 async def guard(request: Request, call_next):
     path = request.url.path
-    if path == "/healthz":
+    if path in ("/healthz", "/line/webhook"):  # LINE webhook 以簽章驗證，不受登入與限流影響
         return await call_next(request)
     if PRIVATE and AUTH_PASSWORD and not _basic_ok(request):
         return Response("需要登入", status_code=401, headers={"WWW-Authenticate": 'Basic realm="twstock"'})
@@ -291,6 +292,29 @@ def analyze_portfolio(req: PortfolioRequest):
         return portfolio.analyze([h.model_dump() for h in req.holdings])
     except (ValueError, D.DataError) as e:
         raise HTTPException(400, str(e)) from e
+
+
+# ---------------------------------------------------------------- 推播
+
+@app.post("/line/webhook")
+async def line_webhook(request: Request, background: BackgroundTasks):
+    body = await request.body()
+    if not line_bot.verify_signature(body, request.headers.get("x-line-signature", "")):
+        raise HTTPException(401, "LINE 簽章驗證失敗")
+    try:
+        payload = json.loads(body)
+    except ValueError as e:
+        raise HTTPException(400, "格式錯誤") from e
+    background.add_task(line_bot.handle_events, payload)  # 先回 200，再在背景查詢並回覆
+    return {"ok": True}
+
+
+@app.post("/api/admin/test-notify")
+def test_notify(_: None = Depends(require_admin_or_local)):
+    result = notifier.send_all("✅ 台股監控平台測試推播：收到這則訊息代表設定成功")
+    if not any(result.values()):
+        raise HTTPException(400, "沒有任何推播管道設定成功，請檢查 Telegram / LINE 環境變數")
+    return result
 
 
 # ---------------------------------------------------------------- 選股

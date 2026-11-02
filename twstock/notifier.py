@@ -1,7 +1,8 @@
-"""背景警示監控：盤中定期檢查警示，觸發時推播到 Telegram（瀏覽器關閉也會執行）。
+"""背景警示監控：盤中定期檢查警示，觸發時推播到 Telegram / LINE（瀏覽器關閉也會執行）。
 
 環境變數：
-- TELEGRAM_BOT_TOKEN、TELEGRAM_CHAT_ID：設定後才會推播
+- TELEGRAM_BOT_TOKEN、TELEGRAM_CHAT_ID：設定後才會推播到 Telegram
+- LINE_CHANNEL_ACCESS_TOKEN、LINE_TO（或 LINE_BROADCAST=1）：設定後推播到 LINE（見 line_bot.py）
 - TWSTOCK_MONITOR_INTERVAL：檢查間隔秒數（預設 60）
 """
 from __future__ import annotations
@@ -14,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from . import monitor
+from . import line_bot, monitor
 
 log = logging.getLogger("twstock.notifier")
 TZ = ZoneInfo("Asia/Taipei")
@@ -40,6 +41,11 @@ def send_telegram(text: str) -> bool:
         return False
 
 
+def send_all(text: str) -> dict[str, bool]:
+    """推播到所有已設定的管道。"""
+    return {"telegram": send_telegram(text), "line": line_bot.push(text)}
+
+
 def check_once() -> list[dict]:
     if not monitor.get_alerts():
         return []
@@ -51,7 +57,7 @@ def check_once() -> list[dict]:
             continue
         _sent.add(key)
         fresh.append(t)
-        send_telegram(f"📈 台股警示\n{t['code']} {t['name']}\n{t['message']}")
+        send_all(f"📈 台股警示\n{t['code']} {t['name']}\n{t['message']}")
     return fresh
 
 

@@ -80,6 +80,32 @@ docker run -d --restart=always -p 8000:8000 -v twstock-data:/data -e TWSTOCK_PAS
 2. 傳一則訊息給你的 bot，再開 `https://api.telegram.org/bot<token>/getUpdates` 找到 `chat.id`。
 3. 設定環境變數 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`。伺服器會在盤中（09:00–13:35）每 60 秒檢查警示，同一警示每天推播一次；瀏覽器不用開著。
 
+### LINE 機器人（選用）
+
+> LINE Notify 已於 2025 年 3 月底停止服務，這裡使用 **LINE 官方帳號＋Messaging API**。
+
+機器人可以做兩件事：
+
+- **盤中警示推播**：和 Telegram 相同，兩者可同時開啟。
+- **對話查詢**：傳 `2330` 回覆報價與技術訊號、傳 `id` 回覆聊天室 ID、傳 `說明` 顯示指令。回覆訊息不計入每月推播額度。
+
+設定步驟：
+
+1. 到 [LINE Official Account Manager](https://manager.line.biz) 建立官方帳號（免費）。
+2. 在官方帳號的「設定 → Messaging API」按「啟用 Messaging API」，建立或選擇一個 Provider。
+3. 到 [LINE Developers Console](https://developers.line.biz/console/) 打開這個 Channel：
+   - **Basic settings**：複製 **Channel secret**；頁面下方的 **Your user ID** 就是你自己的 userId。
+   - **Messaging API**：在 Channel access token（long-lived）按 **Issue** 並複製；用頁面上的 QR code 把機器人加為好友。
+   - **Webhook URL** 填 `https://你的網址/line/webhook`，開啟 **Use webhook**，按 **Verify** 應顯示 Success。
+4. 回到官方帳號後台的「回應設定」，**關閉「自動回應訊息」**，否則機器人會回覆預設訊息。
+5. 在 Render 的 Environment 設定：
+   - `LINE_CHANNEL_ACCESS_TOKEN`、`LINE_CHANNEL_SECRET`
+   - `LINE_TO`：你的 userId（`U` 開頭）。要推到群組，先把機器人加進群組並在群組傳 `id` 取得群組 ID（`C` 開頭）；多個對象用逗號分隔。
+   - 或設 `LINE_BROADCAST=1`：推播給所有加機器人好友的人（不需 `LINE_TO`）。
+6. 到網站「自選監控 → 伺服器警示」以管理員登入，按「發送測試推播」確認收到。
+
+> 官方帳號免費方案每月推播則數有限（台灣「輕用量」方案為每月 200 則，以 LINE 官網公告為準），每推給 1 位好友算 1 則；群組推播算 1 則。廣播給很多好友時容易用完額度，建議改用群組。
+
 ## 環境變數
 
 | 變數 | 預設 | 說明 |
@@ -95,6 +121,9 @@ docker run -d --restart=always -p 8000:8000 -v twstock-data:/data -e TWSTOCK_PAS
 | `TWSTOCK_BACKGROUND_MONITOR` | `1` | 是否啟用背景警示檢查 |
 | `TWSTOCK_MONITOR_INTERVAL` | `60` | 背景檢查間隔（秒） |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | | Telegram 推播 |
+| `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` | | LINE 機器人（Messaging API） |
+| `LINE_TO` | | LINE 推播對象（userId / groupId，逗號分隔） |
+| `LINE_BROADCAST` | `0` | `1` = 推播給所有好友 |
 
 ## 資料來源與限制
 
@@ -117,7 +146,8 @@ twstock/
   backtest.py     回測引擎、策略、參數最佳化
   monitor.py      自選股與警示
   portfolio.py    持股損益分析與建議
-  notifier.py     背景警示檢查與 Telegram 推播
+  notifier.py     背景警示檢查與推播（Telegram / LINE）
+  line_bot.py     LINE 機器人：推播、webhook 對話查詢
   static/         前端（index.html、app.js、style.css、vendor/）
 tests/            pytest 測試
 Dockerfile, render.yaml, fly.toml   部署設定
