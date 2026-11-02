@@ -402,7 +402,7 @@ function initMonitor() {
       item(line.channel_secret, `LINE channel secret ${line.channel_secret ? '已設定' : '未設定（機器人無法回話）'}`),
       item(line.enabled, line.broadcast ? 'LINE 推播對象：所有好友（廣播）' : line.to.length ? `LINE 推播對象：${line.to.map(esc).join('、')}` : 'LINE 推播對象未設定（LINE_TO）'),
       ...(line.last_error ? [item(false, `LINE 最近錯誤：${esc(line.last_error)}`)] : []),
-      item(r.telegram.configured, `Telegram ${r.telegram.configured ? '已設定' : '未設定'}${r.telegram.last_error && r.telegram.configured ? `（最近錯誤：${esc(r.telegram.last_error)}）` : ''}`),
+      item(r.telegram.configured && !(r.telegram.last_error && r.telegram.configured), `Telegram ${r.telegram.configured ? '已設定' : '未設定（選填）'}${r.telegram.last_error && r.telegram.configured ? `，但最近一次失敗：${esc(r.telegram.last_error)}` : ''}`),
       item(r.picks.enabled, `每日精選：週一至週五 ${esc(r.picks.time)} 推播｜伺服器時間 ${esc(r.server_time)}`),
       lp ? item(lp.ok, `最近一次精選推播（${esc(lp.at)}）：${lp.ok ? '成功' : esc(lp.error || errText(lp.errors) || '失敗')}`) : item(true, '尚未推播過每日精選（伺服器重啟後會清空紀錄）'),
     ].join('');

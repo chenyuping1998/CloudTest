@@ -138,3 +138,17 @@ def test_admin_status(monkeypatch):
     j = client.get("/api/admin/status", headers={"X-Admin-Password": "pw"}).json()
     assert len(j["sources"]) == 3 and sum(v["ok"] for v in j["sources"].values()) == 1
     assert {"access_token", "channel_secret", "to", "enabled"} <= set(j["line"])
+
+
+def test_telegram_token_bot_prefix_and_404_hint(monkeypatch):
+    urls = []
+
+    def fake_post(url, **kw):
+        urls.append(url)
+        return _Resp(404, {"ok": False})
+    monkeypatch.setattr(notifier.requests, "post", fake_post)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", " bot123:ABC ")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
+    assert notifier.send_telegram("x") is False
+    assert urls[-1] == "https://api.telegram.org/bot123:ABC/sendMessage"
+    assert "Bot Token 錯誤" in notifier.telegram_error

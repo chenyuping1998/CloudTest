@@ -40,13 +40,17 @@ last_picks_push: dict | None = None
 def send_telegram(text: str) -> bool:
     global telegram_error
     token, chat = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip(), os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if token.lower().startswith("bot") and ":" in token:  # 常見錯誤：連同網址中的 "bot" 一起貼上
+        token = token[3:]
     if not token or not chat:
         telegram_error = "未設定 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID"
         return False
     try:
         r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
                           json={"chat_id": chat, "text": text}, timeout=10)
-        telegram_error = None if r.ok else f"Telegram 失敗（HTTP {r.status_code}）：{r.text[:200]}"
+        hints = {401: "Bot Token 無效", 404: "Bot Token 錯誤（請到 @BotFather 重新複製，不要包含開頭的 bot）",
+                 400: "Chat ID 錯誤，或還沒對機器人按「開始」", 403: "機器人被封鎖或已被移出群組"}
+        telegram_error = None if r.ok else f"Telegram 失敗（HTTP {r.status_code}）：{hints.get(r.status_code, r.text[:200])}"
         return r.ok
     except requests.RequestException as e:
         telegram_error = f"Telegram 連線失敗：{D.friendly_error(e)}"
