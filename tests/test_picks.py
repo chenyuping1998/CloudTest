@@ -18,6 +18,7 @@ def test_compute_top5_with_reasons():
     for p in r["picks"]:
         assert p["code"].isdigit() and len(p["code"]) == 4  # 只選個股，不含 ETF
         assert p["reasons"]
+    assert any(p["models"] for p in r["picks"]) and r["fundamentals"]
     msg = picks.format_message(r)
     assert msg.count("\n1. ") == 1 and "僅供參考" in msg and r["picks"][0]["code"] in msg
 

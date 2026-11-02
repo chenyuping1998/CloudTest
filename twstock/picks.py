@@ -15,8 +15,12 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 from . import data as D
+from . import fundamentals as F
 from . import indicators as ind
+from . import models as M
 from . import screener as S
 
 log = logging.getLogger("twstock.picks")
@@ -28,13 +32,18 @@ METHODS = [
     {"name": "量價突破", "desc": "量增價漲、創 20 日新高"},
     {"name": "均線多頭", "desc": "MA5 > MA20 > MA60、站上月線"},
     {"name": "技術轉強", "desc": "KD 黃金交叉、MACD 柱狀體翻正"},
-    {"name": "風險扣分", "desc": "RSI > 80 過熱、10 日漲幅 > 25%、跌破季線"},
+    {"name": "Minervini 趨勢模板", "desc": "8 項條件全符合 +3 分、7 項 +1.5 分"},
+    {"name": "12-1 個月動能", "desc": "過去 12 個月（扣除近 1 月）報酬為正且優於 0050"},
+    {"name": "營收成長", "desc": "月營收年增 > 20% 且累計年增 > 10%"},
+    {"name": "價值 / 殖利率", "desc": "本益比 ≤ 15 且殖利率 ≥ 4%"},
+    {"name": "風險扣分", "desc": "RSI > 80 過熱、10 日漲幅 > 25%、跌破季線、營收年減 > 20%、本益比 > 60"},
 ]
 
 DAYS = 10
 MIN_VOLUME = 1000  # 10 日均量（張）
 MIN_PRICE = 10.0
 CANDIDATES = 30
+REVENUE_CANDIDATES = 20
 
 _cache: dict[str, dict] = {}
 _lock = threading.Lock()
@@ -68,12 +77,15 @@ def _chip_score(r: dict) -> tuple[float, list[str]]:
     return score, why
 
 
-def _tech_score(code: str, use_demo: bool) -> tuple[float, list[str]] | None:
+def _load(code: str, use_demo: bool):
     try:
-        df = D.get_history(code, years=1, source="demo" if use_demo else None).df
+        return D.get_history(code, years=1.6, source="demo" if use_demo else None).df
     except Exception:  # noqa: BLE001
         return None
-    if len(df) < 60:
+
+
+def _tech_score(df) -> tuple[float, list[str]] | None:
+    if df is None or len(df) < 60:
         return None
     x = ind.compute_all(df)
     last = x.iloc[-1]
@@ -103,6 +115,12 @@ def _tech_score(code: str, use_demo: bool) -> tuple[float, list[str]] | None:
     return score, why
 
 
+def _fund_row(fund, code: str) -> dict | None:
+    if fund is None or fund.empty or code not in fund.index:
+        return None
+    return {k: (None if pd.isna(v) else float(v)) for k, v in fund.loc[code].items()}
+
+
 def compute(top: int = 5, use_demo: bool = False) -> dict:
     """計算每日精選（同一資料日期只計算一次）。"""
     with _lock:
@@ -110,6 +128,10 @@ def compute(top: int = 5, use_demo: bool = False) -> dict:
         key = f"{'demo' if use_demo else 'live'}:{dates[-1]}:{top}"
         if key in _cache:
             return _cache[key]
+
+        fund = F.get_fundamentals(use_demo)
+        bench = _load(M.BENCHMARK, use_demo)
+        bench_close = bench["close"] if bench is not None else None
 
         code = table["code"].astype(str)
         t = table[code.str.fullmatch(r"[1-9]\d{3}") & (table["volume_avg"] >= MIN_VOLUME) & (table["close"] >= MIN_PRICE)]
@@ -119,27 +141,41 @@ def compute(top: int = 5, use_demo: bool = False) -> dict:
             s, why = _chip_score(r)
             cands.append((s, r.get("inst_net") or 0, r, why))
         cands.sort(key=lambda c: (-c[0], -c[1]))
+        chosen = cands[:CANDIDATES]
+        # 加入月營收年增最高的股票，讓「營收成長」型股票也有機會入選
+        if not fund.empty and "rev_yoy" in fund:
+            seen = {c[2]["code"] for c in chosen}
+            yoy = fund["rev_yoy"].dropna().sort_values(ascending=False)
+            extra = [c for c in cands if c[2]["code"] not in seen and c[2]["code"] in yoy.index[:200]]
+            extra.sort(key=lambda c: -yoy.get(c[2]["code"], 0))
+            chosen += extra[:REVENUE_CANDIDATES]
 
         picks = []
-        for chip, _, r, why in cands[:CANDIDATES]:
-            tech = _tech_score(r["code"], use_demo)
+        for chip, _, r, why in chosen:
+            df = _load(r["code"], use_demo)
+            tech = _tech_score(df)
             if tech is None:
                 continue
-            total = chip + tech[0]
+            results = M.evaluate_all(df, _fund_row(fund, r["code"]), bench_close)
+            total = chip + tech[0] + sum(m.score for m in results)
+            model_why = [w for m in results for w in m.reasons]
             chip_why = [w for w in why if not w.startswith("⚠")]
             tech_why = [w for w in tech[1] if not w.startswith("⚠")]
-            reasons = chip_why[:2] + tech_why[:2] + chip_why[2:] + tech_why[2:]
-            risks = [w[2:] for w in why + tech[1] if w.startswith("⚠")]
+            reasons = model_why[:2] + chip_why[:2] + tech_why[:2] + model_why[2:] + chip_why[2:] + tech_why[2:]
+            risks = [w[2:] for w in why + tech[1] if w.startswith("⚠")] + [w for m in results for w in m.risks]
             picks.append({
                 "code": r["code"], "name": r["name"], "close": S._clean(r["close"]),
                 "day_change_pct": S._clean(r["day_change_pct"]), "change_pct": S._clean(r["change_pct"]),
                 "foreign_net": S._clean(r["foreign_net"]), "trust_net": S._clean(r["trust_net"]),
-                "score": round(total, 1), "reasons": reasons[:4], "risks": risks,
+                "score": round(total, 1), "reasons": reasons[:5], "risks": risks,
+                "signals": (chip_why[:2] + tech_why[:2]) or (chip_why + tech_why), "model_reasons": model_why,
+                "models": [M.MODELS[m.model]["name"] for m in results if m.passed],
             })
         picks.sort(key=lambda p: (-p["score"], -(p["trust_net"] or 0)))
         result = {
             "date": dates[-1], "generated_at": datetime.now(D_TZ).strftime("%Y-%m-%d %H:%M"),
-            "picks": picks[:top], "methods": METHODS, "source": "demo" if use_demo else "twse",
+            "picks": picks[:top], "methods": METHODS, "models": list(M.MODELS.values()),
+            "source": "demo" if use_demo else "twse", "fundamentals": not fund.empty,
             "universe": int(len(table)), "eligible": int(len(t)),
         }
         _cache.clear()
@@ -153,12 +189,14 @@ def format_message(result: dict) -> str:
     for i, p in enumerate(result["picks"], 1):
         chg = p["day_change_pct"] or 0
         lines.append(f"{i}. {p['code']} {p['name']}　收 {p['close']:,.2f}（{chg:+.2f}%）")
-        lines.append("   " + "、".join(p["reasons"][:4] or ["綜合分數領先"]))
+        lines.append("   " + "、".join(p.get("signals") or p["reasons"][:4] or ["綜合分數領先"]))
+        if p.get("model_reasons"):
+            lines.append("   ✅ " + "、".join(p["model_reasons"]))
         if p["risks"]:
             lines.append("   ⚠ " + "、".join(p["risks"]))
     if not result["picks"]:
         lines.append("今天沒有符合條件的股票。")
-    lines += ["", "依法人籌碼與技術面規則自動篩選，僅供參考，不構成投資建議。"]
+    lines += ["", "綜合法人籌碼、技術面與 Minervini / 動能 / 營收 / 價值模型自動篩選，僅供參考，不構成投資建議。"]
     if result.get("source") == "demo":
         lines.append("⚠ 示範資料，非真實行情")
     return "\n".join(lines)

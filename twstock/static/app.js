@@ -646,12 +646,12 @@ async function loadPicks() {
     const r = await api('/api/picks');
     if (r.source === 'demo') setSource('demo');
     $('#picks-meta').textContent = `資料日期 ${r.date}｜符合流動性條件 ${r.eligible} 檔${r.source === 'demo' ? '｜示範資料' : ''}`;
-    $('#picks-methods').textContent = `綜合篩選法：${r.methods.map((m) => m.name).join('、')}。排除 10 日均量 < 1000 張或股價 < 10 元。僅供參考，不構成投資建議。`;
+    $('#picks-methods').textContent = `綜合篩選法：${r.methods.map((m) => m.name).join('、')}${r.fundamentals ? '' : '（基本面資料暫時無法取得，本次未計入）'}。排除 10 日均量 < 1000 張或股價 < 10 元。僅供參考，不構成投資建議。`;
     $('#picks-table').innerHTML = `<thead><tr><th>代號</th><th>名稱</th><th>收盤</th><th>當日</th><th>10日</th><th>外資(張)</th><th>投信(張)</th><th>分數</th><th style="text-align:left">原因</th><th></th></tr></thead>
       <tbody>${r.picks.map((p) => `<tr class="clickable" data-code="${esc(p.code)}"><td>${esc(p.code)}</td><td>${esc(p.name)}</td><td>${num(p.close)}</td>
         <td class="${cls(p.day_change_pct)}">${p.day_change_pct > 0 ? '+' : ''}${num(p.day_change_pct)}%</td><td class="${cls(p.change_pct)}">${p.change_pct > 0 ? '+' : ''}${num(p.change_pct)}%</td>
         <td class="${cls(p.foreign_net)}">${signed(p.foreign_net, 0)}</td><td class="${cls(p.trust_net)}">${signed(p.trust_net, 0)}</td><td>${p.score}</td>
-        <td style="text-align:left;white-space:normal">${p.reasons.map((t) => `<span class="tag bull">${esc(t)}</span>`).join(' ')}${p.risks.map((t) => ` <span class="tag reduce">⚠ ${esc(t)}</span>`).join('')}</td>
+        <td style="text-align:left;white-space:normal">${(p.model_reasons || []).map((t) => `<span class="tag add">✅ ${esc(t)}</span>`).join(' ')} ${(p.signals || p.reasons).map((t) => `<span class="tag bull">${esc(t)}</span>`).join(' ')}${p.risks.map((t) => ` <span class="tag reduce">⚠ ${esc(t)}</span>`).join('')}</td>
         <td><button class="ghost small" data-watch="${esc(p.code)}">＋自選</button></td></tr>`).join('') || '<tr><td colspan="10" class="muted">今天沒有符合條件的股票</td></tr>'}</tbody>`;
   } catch (e) { picksLoaded = false; $('#picks-table').innerHTML = `<tbody><tr><td class="muted">載入失敗：${esc(e.message)}</td></tr></tbody>`; }
 }
@@ -666,14 +666,17 @@ const PRESETS = [
   { name: '投信認養（買超佔量>5%）', days: 20, filters: [{ field: 'trust_ratio', op: '>', value: 5 }, { field: 'volume_avg', op: '>', value: 500 }], sort: 'trust_ratio' },
   { name: '法人買超＋站上月線', days: 10, filters: [{ field: 'inst_net', op: '>', value: 0 }], technical: ['above_ma20'], sort: 'inst_net' },
   { name: '量增價漲', days: 5, filters: [{ field: 'volume_ratio', op: '>', value: 2 }, { field: 'day_change_pct', op: '>', value: 3 }], sort: 'volume_ratio' },
+  { name: 'Minervini 趨勢模板', days: 10, filters: [{ field: 'volume_avg', op: '>', value: 500 }], technical: ['minervini'], sort: 'change_pct' },
+  { name: '營收成長＋趨勢向上', days: 10, filters: [{ field: 'rev_yoy', op: '>', value: 20 }, { field: 'rev_cum_yoy', op: '>', value: 10 }], technical: ['above_ma60'], sort: 'rev_yoy' },
+  { name: '高殖利率存股', days: 10, filters: [{ field: 'dividend_yield', op: '>=', value: 5 }, { field: 'pe', op: 'between', value: 0.01, value2: 15 }, { field: 'volume_avg', op: '>', value: 500 }], sort: 'dividend_yield' },
 ];
-const DEFAULT_VALUES = { trust_net: 0, foreign_net: 0, dealer_net: 0, inst_net: 0, trust_days: 5, foreign_days: 5, trust_streak: 3, foreign_streak: 3, dealer_streak: 3, trust_ratio: 1, foreign_ratio: 1, close: 10, day_change_pct: 0, change_pct: 0, volume_avg: 1000, value_avg: 1, volume_ratio: 1.5 };
+const DEFAULT_VALUES = { trust_net: 0, foreign_net: 0, dealer_net: 0, inst_net: 0, trust_days: 5, foreign_days: 5, trust_streak: 3, foreign_streak: 3, dealer_streak: 3, trust_ratio: 1, foreign_ratio: 1, close: 10, day_change_pct: 0, change_pct: 0, volume_avg: 1000, value_avg: 1, volume_ratio: 1.5, rev_yoy: 20, rev_cum_yoy: 10, pe: 15, dividend_yield: 4, pb: 1.5 };
 
 function initScreener() {
   const F = state.config.screener_fields;
   const groups = {};
   Object.entries(F).forEach(([k, f]) => (groups[f.group] ||= []).push([k, f]));
-  $('#sc-fields').innerHTML = Object.entries(groups).map(([g, items]) => `<div class="fgroup"><div class="fgroup-title">${g}面（N = 統計天數）</div>
+  $('#sc-fields').innerHTML = Object.entries(groups).map(([g, items]) => `<div class="fgroup"><div class="fgroup-title">${g}面${items.some(([, f]) => f.window) ? '（N = 統計天數）' : '（上市，證交所最新公布）'}</div>
     ${items.map(([k, f]) => `<div class="frow off" data-field="${k}">
       <label class="check"><input type="checkbox" data-on> ${f.label}</label>
       <select data-op>${SC_OPS.map((o) => `<option value="${o}">${SC_OP_LABEL[o]}</option>`).join('')}</select>
@@ -716,7 +719,7 @@ function applyPreset(p) {
     const f = p.filters.find((x) => x.field === row.dataset.field);
     $('[data-on]', row).checked = !!f;
     row.classList.toggle('off', !f);
-    if (f) { $('[data-op]', row).value = f.op; $('[data-v]', row).value = f.value; }
+    if (f) { $('[data-op]', row).value = f.op; $('[data-v]', row).value = f.value; if (f.value2 != null) $('[data-v2]', row).value = f.value2; }
     row.classList.toggle('is-between', $('[data-op]', row).value === 'between');
   });
   $$('#sc-tech input').forEach((i) => (i.checked = (p.technical || []).includes(i.value)));

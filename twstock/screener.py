@@ -9,7 +9,9 @@ import pandas as pd
 
 from . import data as D
 from . import indicators as ind
+from . import fundamentals as F
 from . import market as M
+from . import models as MD
 
 # 可篩選 / 排序的欄位（前端據此產生勾選清單）
 FIELDS: dict[str, dict] = {
@@ -30,6 +32,11 @@ FIELDS: dict[str, dict] = {
     "volume_avg": {"label": "N日均量(張)", "group": "價量", "window": True},
     "value_avg": {"label": "N日均成交值(億)", "group": "價量", "window": True},
     "volume_ratio": {"label": "當日量/N日均量(倍)", "group": "價量", "window": True},
+    "rev_yoy": {"label": "月營收年增率(%)", "group": "基本"},
+    "rev_cum_yoy": {"label": "累計營收年增率(%)", "group": "基本"},
+    "pe": {"label": "本益比(倍)", "group": "基本"},
+    "dividend_yield": {"label": "殖利率(%)", "group": "基本"},
+    "pb": {"label": "股價淨值比(倍)", "group": "基本"},
 }
 
 TECHNICAL: dict[str, dict] = {
@@ -43,6 +50,8 @@ TECHNICAL: dict[str, dict] = {
     "rsi_50_70": {"label": "RSI 介於 50~70（強勢未過熱）"},
     "new_high_20": {"label": "創 20 日新高"},
     "new_high_60": {"label": "創 60 日新高"},
+    "minervini": {"label": "符合 Minervini 趨勢模板（8 項全中）"},
+    "momentum_12_1": {"label": "12-1 個月動能為正且優於 0050"},
 }
 
 OPS = {">": operator.gt, ">=": operator.ge, "<": operator.lt, "<=": operator.le}
@@ -102,12 +111,25 @@ def build_table(market: str, days: int, use_demo: bool = False) -> tuple[pd.Data
     out["trust_ratio"] = out["trust_net"] / vol_sum.replace(0, np.nan) * 100
     out["foreign_ratio"] = out["foreign_net"] / vol_sum.replace(0, np.nan) * 100
     out.index.name = "code"
+    if market == "twse":  # 基本面資料目前只有上市（證交所 OpenAPI）
+        fund = F.get_fundamentals(use_demo)
+        out = out.join(fund, how="left")
+    for col in ("rev_yoy", "rev_cum_yoy", "pe", "dividend_yield", "pb"):
+        if col not in out:
+            out[col] = np.nan
     return out.reset_index(), dates[1:] if has_base else dates
+
+
+def _bench(use_demo: bool):
+    try:
+        return D.get_history(MD.BENCHMARK, years=1.6, source="demo" if use_demo else None).df["close"]
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _technical_ok(code: str, checks: list[str], use_demo: bool) -> tuple[bool, dict]:
     try:
-        pdata = D.get_history(code, years=1, source="demo" if use_demo else None)
+        pdata = D.get_history(code, years=1.6, source="demo" if use_demo else None)
     except Exception:  # noqa: BLE001
         return False, {}
     df = pdata.df
@@ -127,6 +149,8 @@ def _technical_ok(code: str, checks: list[str], use_demo: bool) -> tuple[bool, d
         "rsi_50_70": lambda: 50 <= last["rsi"] <= 70,
         "new_high_20": lambda: c >= df["close"].iloc[-20:].max(),
         "new_high_60": lambda: c >= df["close"].iloc[-60:].max(),
+        "minervini": lambda: MD.minervini(df, _bench(use_demo)).passed,
+        "momentum_12_1": lambda: MD.momentum_12_1(df, _bench(use_demo)).passed,
     }
     ok = all(bool(tests[k]()) for k in checks if k in tests)
     info = {"rsi": last["rsi"], "k": last["k"], "d": last["d"], "ma20": last["ma20"]}
