@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import uuid
 
@@ -59,8 +60,36 @@ def parse_codes(codes: list[str]) -> list[str]:
     return clean[:MAX_CODES]
 
 
+def seed_alerts() -> list[dict]:
+    """環境變數 TWSTOCK_ALERTS（JSON 陣列）中的警示，用來在免費主機重啟後還原。"""
+    raw = os.environ.get("TWSTOCK_ALERTS", "").strip()
+    if not raw:
+        return []
+    try:
+        items = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    out = []
+    for a in items if isinstance(items, list) else []:
+        try:
+            if a.get("type") in ALERT_TYPES:
+                out.append({"id": str(a.get("id") or uuid.uuid4().hex[:8]), "code": D.normalize_code(str(a["code"])),
+                            "type": a["type"], "value": a.get("value")})
+        except (AttributeError, KeyError, D.DataError):
+            continue
+    return out
+
+
 def get_alerts() -> list[dict]:
+    if not ALERTS_FILE.exists():  # 伺服器重啟後檔案不見時，從環境變數還原
+        return seed_alerts()
     return _load(ALERTS_FILE, [])
+
+
+def alerts_export() -> str:
+    """產生可貼到環境變數 TWSTOCK_ALERTS 的 JSON。"""
+    return json.dumps([{k: a[k] for k in ("id", "code", "type", "value")} for a in get_alerts()],
+                      ensure_ascii=False, separators=(",", ":"))
 
 
 def add_alert(code: str, type_: str, value: float | None = None) -> dict:

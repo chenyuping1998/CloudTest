@@ -59,6 +59,22 @@ TWSTOCK_SOURCE=demo uvicorn twstock.main:app
 >
 > 需要資料永久保存時，可改用付費 starter 方案並加上 disk（見 `render.yaml` 註解），或改用 Oracle Cloud 永久免費主機以 Docker 執行。之後 push 到部署的分支會自動重新部署。
 
+### 免費主機必做：外部排程（每日精選 / 警示推播才會準時）
+
+Render 免費方案閒置會休眠，休眠時背景排程不會執行。請用免費的 [cron-job.org](https://cron-job.org) 定時呼叫網站，同時喚醒伺服器並執行推播工作：
+
+1. 在 Render 的 Environment 新增 `TWSTOCK_CRON_KEY`，值自己取一串不易猜的英數字（例如 `k8Jq2xV9pT`）。
+2. 到 cron-job.org 註冊 → **Create cronjob**：
+   - URL：`https://你的網址/cron/tick?key=你設定的TWSTOCK_CRON_KEY`
+   - Schedule：**Every 5 minutes**（或自訂週一至週五 08:00–13:40 每 5 分鐘）
+3. 儲存後，網站「系統診斷」會顯示「排程最近一次執行：…（外部排程）」。
+
+每次呼叫都會：喚醒伺服器；若已過 08:30 且今天還沒推播就推播每日精選（伺服器醒得晚時，13:30 前都會補發）；盤中檢查警示。
+
+### 免費主機必做：保存警示設定
+
+免費主機沒有永久磁碟，重新部署或重啟後警示會清空。設定好警示後，在「自選監控 → 伺服器警示」按 **複製警示設定**，到 Render 的 Environment 把內容貼到 `TWSTOCK_ALERTS` 並儲存；伺服器重啟時會自動還原。每次新增或刪除警示後要重新複製一次。
+
 ### 方式 B：Fly.io（東京機房，延遲低）
 
 ```bash
@@ -122,7 +138,10 @@ docker run -d --restart=always -p 8000:8000 -v twstock-data:/data -e TWSTOCK_PAS
 | `TWSTOCK_BACKGROUND_MONITOR` | `1` | 是否啟用背景警示檢查 |
 | `TWSTOCK_MONITOR_INTERVAL` | `60` | 背景檢查間隔（秒） |
 | `TWSTOCK_DAILY_PICKS` | `1` | 是否在開盤前推播每日精選 |
-| `TWSTOCK_PICKS_TIME` | `08:30` | 每日精選推播時間（台北時間，週一至週五，需早於 09:00） |
+| `TWSTOCK_PICKS_TIME` | `08:30` | 每日精選推播時間（台北時間，週一至週五） |
+| `TWSTOCK_PICKS_DEADLINE` | `13:30` | 伺服器醒得晚時，補發每日精選的最晚時間 |
+| `TWSTOCK_CRON_KEY` | | 外部排程金鑰（`/cron/tick?key=…`） |
+| `TWSTOCK_ALERTS` | | 警示設定 JSON（網站「複製警示設定」產生），重啟後自動還原 |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | | Telegram 推播 |
 | `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` | | LINE 機器人（Messaging API） |
 | `LINE_TO` | | LINE 推播對象（userId / groupId，逗號分隔） |

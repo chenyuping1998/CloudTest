@@ -24,3 +24,7 @@ services:
         sync: false
       - key: LINE_TO
         sync: false   # 推播對象 userId / groupId，可逗號分隔；或設 LINE_BROADCAST=1 推給所有好友
+      - key: TWSTOCK_CRON_KEY
+        sync: false   # 外部排程金鑰：cron-job.org 呼叫 /cron/tick?key=此值，喚醒伺服器並推播
+      - key: TWSTOCK_ALERTS
+        sync: false   # 選填：警示設定（網站「複製警示設定」產生），免費主機重啟後自動還原

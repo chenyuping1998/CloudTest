@@ -37,7 +37,8 @@ def test_chip_score_rules():
     (datetime(2026, 11, 2, 8, 29, tzinfo=TZ), False),  # 週一 8:29
     (datetime(2026, 11, 2, 8, 30, tzinfo=TZ), True),
     (datetime(2026, 11, 2, 8, 59, tzinfo=TZ), True),
-    (datetime(2026, 11, 2, 9, 0, tzinfo=TZ), False),
+    (datetime(2026, 11, 2, 9, 0, tzinfo=TZ), True),   # 補發時段
+    (datetime(2026, 11, 2, 13, 30, tzinfo=TZ), False),
     (datetime(2026, 11, 1, 8, 45, tzinfo=TZ), False),  # 週日
 ])
 def test_picks_due(monkeypatch, when, due):

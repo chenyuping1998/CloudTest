@@ -85,13 +85,17 @@ def check_once() -> list[dict]:
 
 
 def picks_due(now: datetime | None = None) -> bool:
-    """週一至週五 TWSTOCK_PICKS_TIME ~ 09:00 之間，且今天尚未推播。"""
+    """週一至週五 TWSTOCK_PICKS_TIME 之後、TWSTOCK_PICKS_DEADLINE（預設 13:30）之前，且今天尚未推播。
+
+    伺服器若在推播時間正在休眠（免費主機），醒來後仍會在期限內補發。
+    """
     if os.environ.get("TWSTOCK_DAILY_PICKS", "1") != "1":
         return False
     now = now or datetime.now(TZ)
     h, m = (int(v) for v in os.environ.get("TWSTOCK_PICKS_TIME", "08:30").split(":"))
+    dh, dm = (int(v) for v in os.environ.get("TWSTOCK_PICKS_DEADLINE", "13:30").split(":"))
     minutes = now.hour * 60 + now.minute
-    return now.weekday() < 5 and h * 60 + m <= minutes < 9 * 60 and _picks_sent != now.strftime("%Y-%m-%d")
+    return now.weekday() < 5 and h * 60 + m <= minutes < dh * 60 + dm and _picks_sent != now.strftime("%Y-%m-%d")
 
 
 def push_daily_picks(force: bool = False) -> dict | None:
@@ -116,20 +120,44 @@ def push_daily_picks(force: bool = False) -> dict | None:
     return result
 
 
-def _loop(stop: threading.Event, interval: int) -> None:
-    while not stop.wait(interval):
+_tick_lock = threading.Lock()
+last_tick: dict | None = None
+
+
+def tick(source: str = "背景排程") -> bool:
+    """執行一次排程工作：到時間就推播每日精選，盤中檢查警示。正在執行時直接略過（回傳 False）。"""
+    global last_tick
+    if not _tick_lock.acquire(blocking=False):
+        return False
+    try:
+        last_tick = {"at": datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S"), "source": source}
         try:
             if picks_due():
                 push_daily_picks()
         except Exception:  # noqa: BLE001 - 背景執行緒不能中斷
             log.exception("每日精選推播失敗")
-        if not market_open():
-            continue
-        try:
-            for t in check_once():
-                log.info("警示觸發：%s %s", t["code"], t["message"])
-        except Exception:  # noqa: BLE001 - 背景執行緒不能中斷
-            log.exception("背景警示檢查失敗")
+        if market_open():
+            try:
+                for t in check_once():
+                    log.info("警示觸發：%s %s", t["code"], t["message"])
+            except Exception:  # noqa: BLE001
+                log.exception("背景警示檢查失敗")
+        return True
+    finally:
+        _tick_lock.release()
+
+
+def tick_async(source: str) -> bool:
+    """在背景執行 tick（給外部排程呼叫，立即回應避免逾時）。"""
+    if _tick_lock.locked():
+        return False
+    threading.Thread(target=tick, args=(source,), daemon=True, name="twstock-tick").start()
+    return True
+
+
+def _loop(stop: threading.Event, interval: int) -> None:
+    while not stop.wait(interval):
+        tick()
 
 
 def start() -> threading.Event:

@@ -95,7 +95,7 @@ def _basic_ok(request: Request) -> bool:
 @app.middleware("http")
 async def guard(request: Request, call_next):
     path = request.url.path
-    if path in ("/healthz", "/line/webhook"):  # LINE webhook 以簽章驗證，不受登入與限流影響
+    if path in ("/healthz", "/line/webhook", "/cron/tick"):  # 以簽章 / 金鑰驗證，不受登入與限流影響
         return await call_next(request)
     if PRIVATE and AUTH_PASSWORD and not _basic_ok(request):
         return Response("需要登入", status_code=401, headers={"WWW-Authenticate": 'Basic realm="twstock"'})
@@ -260,7 +260,10 @@ def admin_check(_: None = Depends(require_admin_or_local)):
 
 @app.get("/api/alerts")
 def list_alerts(_: None = Depends(require_admin_or_local)):
-    return monitor.check_alerts()
+    export = monitor.alerts_export()
+    seed = json.dumps([{k: a[k] for k in ("id", "code", "type", "value")} for a in monitor.seed_alerts()],
+                      ensure_ascii=False, separators=(",", ":"))
+    return {**monitor.check_alerts(), "export": export, "persisted": export == seed}
 
 
 @app.post("/api/alerts")
@@ -353,6 +356,18 @@ def _probe(url: str, params: dict | None = None) -> dict:
         return {"ok": False, "error": D.friendly_error(e), "ms": int((time.time() - t) * 1000)}
 
 
+@app.api_route("/cron/tick", methods=["GET", "POST"])
+def cron_tick(key: str = ""):
+    """給 cron-job.org 等外部排程呼叫：喚醒伺服器並執行排程工作（推播每日精選、盤中檢查警示）。"""
+    expected = os.environ.get("TWSTOCK_CRON_KEY", "").strip()
+    if not expected:
+        raise HTTPException(403, "伺服器未設定 TWSTOCK_CRON_KEY")
+    if not secrets.compare_digest(key.encode(), expected.encode()):
+        raise HTTPException(401, "金鑰錯誤")
+    started = notifier.tick_async("外部排程")
+    return {"ok": True, "started": started, "picks_due": notifier.picks_due(), "market_open": notifier.market_open()}
+
+
 @app.get("/api/admin/status")
 def admin_status(_: None = Depends(require_admin_or_local)):
     """系統診斷：資料來源連線、推播設定、最近一次精選推播結果。"""
@@ -372,6 +387,8 @@ def admin_status(_: None = Depends(require_admin_or_local)):
                   "time": os.environ.get("TWSTOCK_PICKS_TIME", "08:30"),
                   "last_push": notifier.last_picks_push, "last_error": notifier.picks_error},
         "server_time": datetime.now(notifier.TZ).strftime("%Y-%m-%d %H:%M:%S"),
+        "cron": {"configured": bool(os.environ.get("TWSTOCK_CRON_KEY", "").strip()), "last_tick": notifier.last_tick},
+        "alerts": {"count": len(monitor.get_alerts()), "seeded": len(monitor.seed_alerts())},
     }
 
 

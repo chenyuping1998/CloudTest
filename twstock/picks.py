@@ -185,7 +185,8 @@ def compute(top: int = 5, use_demo: bool = False) -> dict:
 
 def format_message(result: dict) -> str:
     today = datetime.now(D_TZ)
-    lines = [f"📊 台股每日精選（{today:%m/%d} 開盤前）", f"資料日期：{result['date']}", ""]
+    when = "開盤前" if today.hour < 9 else "盤中補發"
+    lines = [f"📊 台股每日精選（{today:%m/%d} {when}）", f"資料日期：{result['date']}", ""]
     for i, p in enumerate(result["picks"], 1):
         chg = p["day_change_pct"] or 0
         lines.append(f"{i}. {p['code']} {p['name']}　收 {p['close']:,.2f}（{chg:+.2f}%）")

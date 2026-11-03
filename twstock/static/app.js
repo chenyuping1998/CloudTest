@@ -315,6 +315,14 @@ async function loadAlerts() {
   try {
     const d = await api('/api/alerts');
     const types = state.config.alert_types;
+    state.alertExport = d.export;
+    const box = $('#alert-persist');
+    box.hidden = !d.alerts.length && d.persisted;
+    box.innerHTML = d.persisted
+      ? '<span class="tag add">已保存</span> 伺服器重啟後會自動還原這些警示。'
+      : `<span class="tag reduce">⚠ 尚未保存</span> 免費主機重啟或重新部署後警示會消失。按
+         <button class="ghost small" type="button" id="alert-copy">複製警示設定</button>，
+         到 Render → Environment 把內容貼到 <code>TWSTOCK_ALERTS</code>（新增或覆蓋）並儲存。每次新增 / 刪除警示後都要重新複製一次。`;
     $('#alert-list').innerHTML = d.alerts.length ? d.alerts.map((a) => `<li><span><b>${esc(a.code)}</b> ${esc(types[a.type]?.label || a.type)} ${a.value ?? ''}</span><button class="ghost small" data-alert="${a.id}">刪除</button></li>`).join('') : '<li class="muted">尚未設定警示</li>';
     $('#triggered-list').innerHTML = d.triggered.length ? d.triggered.map((t) => `<li><span><b>${esc(t.code)} ${esc(t.name)}</b>　${esc(t.message)}</span><span class="tag fire">觸發</span></li>`).join('') : '<li class="muted">目前沒有觸發的警示</li>';
     const today = new Date().toDateString();
@@ -368,6 +376,11 @@ function initMonitor() {
       $('#alert-value').value = ''; loadAlerts();
     } catch (err) { toast(err.message, true); }
   });
+  $('#alert-persist').addEventListener('click', async (e) => {
+    if (!e.target.closest('#alert-copy')) return;
+    try { await navigator.clipboard.writeText(state.alertExport || '[]'); toast('已複製，請貼到 Render 的環境變數 TWSTOCK_ALERTS'); }
+    catch { prompt('請手動複製以下內容，貼到 Render 的環境變數 TWSTOCK_ALERTS：', state.alertExport || '[]'); }
+  });
   $('#alert-list').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-alert]'); if (!b) return;
     try { await api(`/api/alerts/${b.dataset.alert}`, { method: 'DELETE' }); loadAlerts(); } catch (err) { toast(err.message, true); }
@@ -404,6 +417,10 @@ function initMonitor() {
       ...(line.last_error ? [item(false, `LINE 最近錯誤：${esc(line.last_error)}`)] : []),
       item(r.telegram.configured && !(r.telegram.last_error && r.telegram.configured), `Telegram ${r.telegram.configured ? '已設定' : '未設定（選填）'}${r.telegram.last_error && r.telegram.configured ? `，但最近一次失敗：${esc(r.telegram.last_error)}` : ''}`),
       item(r.picks.enabled, `每日精選：週一至週五 ${esc(r.picks.time)} 推播｜伺服器時間 ${esc(r.server_time)}`),
+      item(r.cron.configured && !!r.cron.last_tick, r.cron.configured
+        ? (r.cron.last_tick ? `排程最近一次執行：${esc(r.cron.last_tick.at)}（${esc(r.cron.last_tick.source)}）` : '已設定 TWSTOCK_CRON_KEY，但伺服器啟動後還沒收到排程呼叫')
+        : '未設定外部排程（TWSTOCK_CRON_KEY）：免費主機休眠時不會推播'),
+      item(r.alerts.count === 0 || r.alerts.seeded > 0, `伺服器警示 ${r.alerts.count} 筆${r.alerts.count ? (r.alerts.seeded ? `，重啟後可還原 ${r.alerts.seeded} 筆` : '，尚未保存到 TWSTOCK_ALERTS，重啟後會消失') : '（尚未設定，所以不會有警示推播）'}`),
       lp ? item(lp.ok, `最近一次精選推播（${esc(lp.at)}）：${lp.ok ? '成功' : esc(lp.error || errText(lp.errors) || '失敗')}`) : item(true, '尚未推播過每日精選（伺服器重啟後會清空紀錄）'),
     ].join('');
     $('#status-panel').hidden = false;
