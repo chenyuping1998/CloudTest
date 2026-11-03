@@ -85,8 +85,11 @@ def build_table(market: str, days: int, use_demo: bool = False) -> tuple[pd.Data
     def pivot(col: str) -> pd.DataFrame:
         return long.pivot_table(index="date", columns="code", values=col, aggfunc="last").sort_index()
 
-    close, volume, value = pivot("close"), pivot("volume"), pivot("value")
-    flows = {k: pivot(k) / 1000 for k in ("foreign", "trust", "dealer", "inst")}  # 股 -> 張
+    close = pivot("close")
+    # 行情中有些代號不在法人資料中（例如受益證券 01001T），一律對齊到行情的代號，缺的視為無資料
+    volume, value = pivot("volume").reindex(columns=close.columns), pivot("value").reindex(columns=close.columns)
+    flows = {k: pivot(k).reindex(index=close.index, columns=close.columns) / 1000
+             for k in ("foreign", "trust", "dealer", "inst")}  # 股 -> 張
     has_base = len(close) > days
     base_close = close.iloc[0]
     cur = slice(1, None) if has_base else slice(None)

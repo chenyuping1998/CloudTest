@@ -152,25 +152,29 @@ def compute(top: int = 5, use_demo: bool = False) -> dict:
 
         picks = []
         for chip, _, r, why in chosen:
-            df = _load(r["code"], use_demo)
-            tech = _tech_score(df)
-            if tech is None:
-                continue
-            results = M.evaluate_all(df, _fund_row(fund, r["code"]), bench_close)
-            total = chip + tech[0] + sum(m.score for m in results)
-            model_why = [w for m in results for w in m.reasons]
-            chip_why = [w for w in why if not w.startswith("⚠")]
-            tech_why = [w for w in tech[1] if not w.startswith("⚠")]
-            reasons = model_why[:2] + chip_why[:2] + tech_why[:2] + model_why[2:] + chip_why[2:] + tech_why[2:]
-            risks = [w[2:] for w in why + tech[1] if w.startswith("⚠")] + [w for m in results for w in m.risks]
-            picks.append({
-                "code": r["code"], "name": r["name"], "close": S._clean(r["close"]),
-                "day_change_pct": S._clean(r["day_change_pct"]), "change_pct": S._clean(r["change_pct"]),
-                "foreign_net": S._clean(r["foreign_net"]), "trust_net": S._clean(r["trust_net"]),
-                "score": round(total, 1), "reasons": reasons[:5], "risks": risks,
-                "signals": (chip_why[:2] + tech_why[:2]) or (chip_why + tech_why), "model_reasons": model_why,
-                "models": [M.MODELS[m.model]["name"] for m in results if m.passed],
-            })
+            try:
+                df = _load(r["code"], use_demo)
+                tech = _tech_score(df)
+                if tech is None:
+                    continue
+                results = M.evaluate_all(df, _fund_row(fund, r["code"]), bench_close)
+                total = chip + tech[0] + sum(m.score for m in results)
+                model_why = [w for m in results for w in m.reasons]
+                chip_why = [w for w in why if not w.startswith("⚠")]
+                tech_why = [w for w in tech[1] if not w.startswith("⚠")]
+                reasons = model_why[:2] + chip_why[:2] + tech_why[:2] + model_why[2:] + chip_why[2:] + tech_why[2:]
+                risks = [w[2:] for w in why + tech[1] if w.startswith("⚠")] + [w for m in results for w in m.risks]
+                picks.append({
+                    "code": r["code"], "name": r["name"], "close": S._clean(r["close"]),
+                    "day_change_pct": S._clean(r["day_change_pct"]), "change_pct": S._clean(r["change_pct"]),
+                    "foreign_net": S._clean(r["foreign_net"]), "trust_net": S._clean(r["trust_net"]),
+                    "score": round(total, 1), "reasons": reasons[:5], "risks": risks,
+                    "signals": (chip_why[:2] + tech_why[:2]) or (chip_why + tech_why), "model_reasons": model_why,
+                    "models": [M.MODELS[m.model]["name"] for m in results if m.passed],
+                })
+            except Exception:  # noqa: BLE001 - 單檔資料異常不影響其他股票
+                log.exception("每日精選：%s 計算失敗，已略過", r.get("code"))
+
         picks.sort(key=lambda p: (-p["score"], -(p["trust_net"] or 0)))
         result = {
             "date": dates[-1], "generated_at": datetime.now(D_TZ).strftime("%Y-%m-%d %H:%M"),

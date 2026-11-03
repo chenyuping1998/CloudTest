@@ -105,7 +105,7 @@ def push_daily_picks(force: bool = False) -> dict | None:
         result = picks.safe_compute(use_demo=D.SOURCE == "demo", retries=0 if force else 2, raise_last=True)
         picks_error = None
     except Exception as e:  # noqa: BLE001
-        picks_error = f"每日精選計算失敗：{e}"
+        picks_error = f"每日精選計算失敗：{e}" if isinstance(e, D.DataError) else f"每日精選計算失敗（程式錯誤 {type(e).__name__}：{e}）"
         last_picks_push = {"at": datetime.now(TZ).strftime("%Y-%m-%d %H:%M"), "ok": False, "error": picks_error}
         return None
     _picks_sent = datetime.now(TZ).strftime("%Y-%m-%d")
