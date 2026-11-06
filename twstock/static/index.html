@@ -25,6 +25,7 @@
   <button data-tab="backtest">策略回測</button>
   <button data-tab="screener">條件選股</button>
   <button data-tab="compare">走勢比較</button>
+  <button data-tab="admin">管理後台 🔒</button>
 </nav>
 
 <main>
@@ -47,38 +48,79 @@
       </table>
     </div>
 
-    <p class="muted small-note">自選清單儲存在你的瀏覽器中，其他訪客看不到也改不到。</p>
-    <div class="grid2">
-      <div class="card">
-        <h3>伺服器警示（管理員） <button id="admin-logout" class="ghost small" type="button">登出</button></h3>
-        <div id="alert-login">
-          <p class="muted">伺服器警示會在盤中自動檢查並推播到管理員的 Telegram，只有管理員可以設定。</p>
-          <p id="admin-disabled" class="muted" hidden>伺服器尚未設定管理員密碼（TWSTOCK_PASSWORD），警示功能停用。</p>
-          <form id="admin-login" class="inline">
-            <input id="admin-pw" type="password" placeholder="管理員密碼" autocomplete="current-password" required>
-            <button>登入</button>
+    <p class="muted small-note">自選清單儲存在你的瀏覽器中，其他訪客看不到也改不到。按 🔔 可為該股設定伺服器警示（需管理員）。</p>
+  </section>
+
+  <!-- ============================== 管理後台 -->
+  <section id="tab-admin" class="tab">
+    <div id="adm-login" class="card login-card">
+      <h3>管理員登入</h3>
+      <p class="muted">管理後台可設定伺服器警示（盤中自動檢查並推播到 LINE / Telegram）、手動推播今日精選與系統診斷。</p>
+      <p id="admin-disabled" class="muted" hidden>伺服器尚未設定管理員密碼（環境變數 TWSTOCK_PASSWORD），後台停用。</p>
+      <form id="admin-login" class="inline">
+        <input id="admin-pw" type="password" placeholder="管理員密碼" autocomplete="current-password" required>
+        <button>登入</button>
+      </form>
+    </div>
+
+    <div id="adm-main" hidden>
+      <div class="adm-head">
+        <h2>管理後台</h2>
+        <span id="adm-updated" class="muted"></span>
+        <span class="spacer"></span>
+        <button id="adm-refresh" class="ghost small" type="button">重新整理</button>
+        <button id="admin-logout" class="ghost small" type="button">登出</button>
+      </div>
+      <div id="adm-overview" class="chips"></div>
+      <div id="alert-persist" class="banner warn" hidden></div>
+
+      <div class="adm-grid">
+        <div class="card">
+          <h3>新增警示</h3>
+          <form id="alert-form" class="alert-form">
+            <label>股票代號<small class="muted">可用逗號一次設定多檔，例如 2330,2317</small>
+              <input id="alert-code" list="stock-list" placeholder="2330" required autocomplete="off"></label>
+            <div id="alert-preview" class="small-note"></div>
+            <label>條件<select id="alert-type"></select></label>
+            <label id="alert-value-wrap">數值
+              <span class="unit-input"><input id="alert-value" type="number" step="any"><span id="alert-unit"></span></span>
+              <small id="alert-hint" class="muted"></small></label>
+            <label>備註<small class="muted">選填，會附在推播訊息中</small>
+              <input id="alert-note" maxlength="60" placeholder="例：停損點、加碼點"></label>
+            <div class="templates"><span class="muted">常用：</span><span id="alert-templates"></span></div>
+            <button type="submit">新增警示</button>
           </form>
         </div>
-        <div id="alert-admin" hidden>
-          <form id="alert-form" class="inline wrap">
-            <input id="alert-code" list="stock-list" placeholder="代號" required style="width:7em">
-            <select id="alert-type"></select>
-            <input id="alert-value" type="number" step="any" placeholder="數值" style="width:7em">
-            <button>新增警示</button>
-          </form>
-          <ul id="alert-list" class="list"></ul>
-          <div id="alert-persist" class="small-note" hidden></div>
-          <p class="muted small-note" style="margin-top:12px">警示觸發時會推播到 Telegram / LINE（需在伺服器設定環境變數）。
-            <button id="test-notify" class="ghost small" type="button">發送測試推播</button>
-            <button id="push-picks" class="ghost small" type="button">立即推播今日精選</button>
-            <button id="sys-status" class="ghost small" type="button">系統診斷</button></p>
-          <div id="status-panel" hidden><h4>系統診斷</h4><ul id="status-list" class="list"></ul></div>
-          <p class="muted small-note">每日精選會在週一至週五 08:30 自動推播。</p>
+        <div class="card">
+          <h3>推播與排程</h3>
+          <ul class="action-list">
+            <li><div><b>發送測試推播</b><small class="muted">確認 LINE / Telegram 設定正確</small></div><button id="test-notify" class="ghost" type="button">發送</button></li>
+            <li><div><b>立即推播今日精選</b><small class="muted">不用等到 08:30，首次計算約需 1～2 分鐘</small></div><button id="push-picks" class="ghost" type="button">推播</button></li>
+            <li><div><b>瀏覽器桌面通知</b><small class="muted">開著後台時，警示觸發會跳出通知</small></div><button id="notify-btn" class="ghost" type="button">開啟</button></li>
+          </ul>
+          <p id="adm-schedule" class="muted small-note"></p>
         </div>
       </div>
-      <div class="card" id="triggered-card" hidden>
-        <h3>觸發中的警示 <button id="notify-btn" class="ghost small">開啟桌面通知</button></h3>
-        <ul id="triggered-list" class="list"></ul>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>警示清單</h3>
+          <div class="seg" id="alert-filter">
+            <button data-f="all" class="active">全部 <i>0</i></button><button data-f="firing">觸發中 <i>0</i></button>
+            <button data-f="watching">監控中 <i>0</i></button><button data-f="paused">已暫停 <i>0</i></button>
+          </div>
+        </div>
+        <div class="table-wrap"><table id="alert-table" class="data alert-table"></table></div>
+        <p class="muted small-note">「觸發中」代表目前已達成條件；盤中（09:00–13:35）會推播，同一警示每天只推播一次。暫停的警示不會推播。</p>
+      </div>
+
+      <div class="grid2">
+        <div class="card"><h3>觸發紀錄</h3><ul id="alert-history" class="list"></ul></div>
+        <div class="card">
+          <div class="card-head"><h3>系統診斷</h3><button id="sys-status" class="ghost small" type="button">執行診斷</button></div>
+          <p id="status-time" class="muted small-note">檢查資料來源連線、推播設定、排程與資料保存狀態。</p>
+          <ul id="status-list" class="list"></ul>
+        </div>
       </div>
     </div>
   </section>

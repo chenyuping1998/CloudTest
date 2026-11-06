@@ -15,21 +15,36 @@ from .analysis import _f
 ALERTS_FILE = D.DATA_DIR / "alerts.json"
 _lock = threading.Lock()
 
-ALERT_TYPES = {
-    "price_above": {"label": "股價 ≥", "needs_value": True},
-    "price_below": {"label": "股價 ≤", "needs_value": True},
-    "change_above": {"label": "漲幅 ≥ (%)", "needs_value": True},
-    "change_below": {"label": "跌幅 ≤ (%)", "needs_value": True},
-    "rsi_above": {"label": "RSI ≥", "needs_value": True},
-    "rsi_below": {"label": "RSI ≤", "needs_value": True},
-    "volume_surge": {"label": "成交量 ≥ N 倍 20 日均量", "needs_value": True},
-    "cross_ma_up": {"label": "向上突破 N 日均線", "needs_value": True},
-    "cross_ma_down": {"label": "向下跌破 N 日均線", "needs_value": True},
-    "kd_golden": {"label": "KD 黃金交叉", "needs_value": False},
-    "kd_death": {"label": "KD 死亡交叉", "needs_value": False},
-    "macd_golden": {"label": "MACD 黃金交叉", "needs_value": False},
-    "macd_death": {"label": "MACD 死亡交叉", "needs_value": False},
+ALERT_TYPES = {  # group：分類；unit：數值單位；hint：填寫提示；fmt：顯示格式
+    "price_above": {"label": "股價 ≥", "group": "價格", "needs_value": True, "unit": "元", "hint": "例：1100", "fmt": "股價 ≥ {v} 元"},
+    "price_below": {"label": "股價 ≤", "group": "價格", "needs_value": True, "unit": "元", "hint": "例：950", "fmt": "股價 ≤ {v} 元"},
+    "change_above": {"label": "單日漲幅 ≥", "group": "價格", "needs_value": True, "unit": "%", "hint": "例：5（代表 +5%）", "fmt": "單日漲幅 ≥ {v}%"},
+    "change_below": {"label": "單日跌幅 ≤", "group": "價格", "needs_value": True, "unit": "%", "hint": "例：-5（代表 -5%）", "fmt": "單日漲跌幅 ≤ {v}%"},
+    "cross_ma_up": {"label": "向上突破均線", "group": "技術指標", "needs_value": True, "unit": "日", "hint": "例：20（月線）、60（季線）", "fmt": "向上突破 {v} 日均線"},
+    "cross_ma_down": {"label": "向下跌破均線", "group": "技術指標", "needs_value": True, "unit": "日", "hint": "例：20（月線）、60（季線）", "fmt": "向下跌破 {v} 日均線"},
+    "rsi_above": {"label": "RSI ≥", "group": "技術指標", "needs_value": True, "unit": "", "hint": "例：70（超買）", "fmt": "RSI ≥ {v}"},
+    "rsi_below": {"label": "RSI ≤", "group": "技術指標", "needs_value": True, "unit": "", "hint": "例：30（超賣）", "fmt": "RSI ≤ {v}"},
+    "kd_golden": {"label": "KD 黃金交叉", "group": "技術指標", "needs_value": False, "unit": "", "hint": "", "fmt": "KD 黃金交叉"},
+    "kd_death": {"label": "KD 死亡交叉", "group": "技術指標", "needs_value": False, "unit": "", "hint": "", "fmt": "KD 死亡交叉"},
+    "macd_golden": {"label": "MACD 黃金交叉", "group": "技術指標", "needs_value": False, "unit": "", "hint": "", "fmt": "MACD 黃金交叉"},
+    "macd_death": {"label": "MACD 死亡交叉", "group": "技術指標", "needs_value": False, "unit": "", "hint": "", "fmt": "MACD 死亡交叉"},
+    "volume_surge": {"label": "成交量爆量", "group": "量能", "needs_value": True, "unit": "倍", "hint": "例：2（20 日均量的 2 倍）", "fmt": "成交量 ≥ 20 日均量 {v} 倍"},
 }
+FIELDS = ("id", "code", "type", "value", "enabled", "note")
+
+
+def describe(alert: dict) -> str:
+    t = ALERT_TYPES.get(alert["type"], {})
+    v = alert.get("value")
+    v_txt = "" if v is None else (f"{v:,.0f}" if float(v).is_integer() and abs(v) >= 1000 else f"{v:g}")
+    return t.get("fmt", alert["type"]).format(v=v_txt)
+
+
+def _normalize(a: dict) -> dict:
+    """補齊舊版警示缺少的欄位。"""
+    return {"id": str(a.get("id") or uuid.uuid4().hex[:8]), "code": a["code"], "type": a["type"],
+            "value": a.get("value"), "enabled": a.get("enabled", True) is not False, "note": str(a.get("note") or "")[:60]}
+
 
 
 def _load(path, default):
@@ -73,8 +88,7 @@ def seed_alerts() -> list[dict]:
     for a in items if isinstance(items, list) else []:
         try:
             if a.get("type") in ALERT_TYPES:
-                out.append({"id": str(a.get("id") or uuid.uuid4().hex[:8]), "code": D.normalize_code(str(a["code"])),
-                            "type": a["type"], "value": a.get("value")})
+                out.append(_normalize({**a, "code": D.normalize_code(str(a["code"]))}))
         except (AttributeError, KeyError, D.DataError):
             continue
     return out
@@ -83,26 +97,65 @@ def seed_alerts() -> list[dict]:
 def get_alerts() -> list[dict]:
     if not ALERTS_FILE.exists():  # 伺服器重啟後檔案不見時，從環境變數還原
         return seed_alerts()
-    return _load(ALERTS_FILE, [])
+    return [_normalize(a) for a in _load(ALERTS_FILE, []) if a.get("type") in ALERT_TYPES and a.get("code")]
 
 
 def alerts_export() -> str:
     """產生可貼到環境變數 TWSTOCK_ALERTS 的 JSON。"""
-    return json.dumps([{k: a[k] for k in ("id", "code", "type", "value")} for a in get_alerts()],
-                      ensure_ascii=False, separators=(",", ":"))
+    return export_json(get_alerts())
 
 
-def add_alert(code: str, type_: str, value: float | None = None) -> dict:
+def export_json(alerts: list[dict]) -> str:
+    out = []
+    for a in alerts:
+        item = {k: a[k] for k in ("id", "code", "type", "value")}
+        if not a.get("enabled", True):
+            item["enabled"] = False
+        if a.get("note"):
+            item["note"] = a["note"]
+        out.append(item)
+    return json.dumps(out, ensure_ascii=False, separators=(",", ":"))
+
+
+def _validate(type_: str, value) -> float | None:
     if type_ not in ALERT_TYPES:
         raise ValueError(f"未知警示類型：{type_}")
-    if ALERT_TYPES[type_]["needs_value"] and value is None:
-        raise ValueError("此警示需要設定數值")
-    alert = {"id": uuid.uuid4().hex[:8], "code": D.normalize_code(code), "type": type_, "value": value}
+    if not ALERT_TYPES[type_]["needs_value"]:
+        return None
+    if value is None:
+        raise ValueError(f"「{ALERT_TYPES[type_]['label']}」需要設定數值")
+    value = float(value)
+    if type_ in ("cross_ma_up", "cross_ma_down") and not (2 <= value <= 240 and value.is_integer()):
+        raise ValueError("均線天數需為 2~240 的整數")
+    if type_ in ("rsi_above", "rsi_below") and not 0 < value < 100:
+        raise ValueError("RSI 數值需介於 0~100")
+    if type_ in ("price_above", "price_below", "volume_surge") and value <= 0:
+        raise ValueError("數值必須大於 0")
+    return value
+
+
+def add_alert(code: str, type_: str, value: float | None = None, note: str = "") -> dict:
+    value = _validate(type_, value)
+    alert = _normalize({"code": D.normalize_code(code), "type": type_, "value": value, "note": note})
     with _lock:
         alerts = get_alerts()
         alerts.append(alert)
         _save(ALERTS_FILE, alerts)
     return alert
+
+
+def update_alert(alert_id: str, **changes) -> dict:
+    """修改警示：value、enabled、note、type。"""
+    with _lock:
+        alerts = get_alerts()
+        for a in alerts:
+            if a["id"] == alert_id:
+                new = {**a, **{k: v for k, v in changes.items() if k in ("value", "enabled", "note", "type") and v is not None}}
+                new["value"] = _validate(new["type"], new.get("value"))
+                a.update(_normalize(new))
+                _save(ALERTS_FILE, alerts)
+                return a
+    raise KeyError(alert_id)
 
 
 def delete_alert(alert_id: str) -> None:
@@ -192,21 +245,71 @@ def quotes(codes: list[str]) -> list[dict]:
     return rows
 
 
+def alert_state(alert: dict, df: pd.DataFrame, x: pd.DataFrame) -> dict:
+    """警示目前的數值與離觸發的距離（給後台顯示用）。"""
+    t, v = alert["type"], alert.get("value")
+    c = df["close"]
+    price = float(c.iloc[-1])
+    chg = (price / float(c.iloc[-2]) - 1) * 100 if len(c) > 1 else 0.0
+    last = x.iloc[-1]
+    cur, dist = f"現價 {price:,.2f}", None
+    if t in ("price_above", "price_below"):
+        gap = (v / price - 1) * 100
+        dist = f"還差 {gap:+.1f}%" if (t == "price_above" and price < v) or (t == "price_below" and price > v) else None
+    elif t in ("change_above", "change_below"):
+        cur = f"今日 {chg:+.2f}%"
+    elif t in ("rsi_above", "rsi_below"):
+        r = _f(last.get("rsi"))
+        cur = f"RSI {r:.1f}" if r is not None else "RSI —"
+        if r is not None and ((t == "rsi_above" and r < v) or (t == "rsi_below" and r > v)):
+            dist = f"還差 {abs(v - r):.1f} 點"
+    elif t == "volume_surge":
+        vma = _f(last.get("vol_ma20"))
+        ratio = float(df["volume"].iloc[-1]) / vma if vma else None
+        cur = f"量 {ratio:.1f} 倍均量" if ratio is not None else "量 —"
+    elif t in ("cross_ma_up", "cross_ma_down"):
+        ma = _f(ind.sma(c, int(v)).iloc[-1])
+        if ma:
+            side = "之上" if price >= ma else "之下"
+            cur = f"現價 {price:,.2f}（MA{int(v)} {ma:,.2f} {side}）"
+            gap = (ma / price - 1) * 100
+            if (t == "cross_ma_up" and price < ma) or (t == "cross_ma_down" and price > ma):
+                dist = f"還差 {gap:+.1f}%"
+            else:  # 已在均線另一側：交叉當天才觸發，需先回到均線另一側
+                dist = "已在均線上方，需先跌回才會再觸發" if t == "cross_ma_up" else "已在均線下方，需先站回才會再觸發"
+    elif t in ("kd_golden", "kd_death"):
+        k, d = _f(last.get("k")), _f(last.get("d"))
+        cur = f"K {k:.0f} / D {d:.0f}" if k is not None and d is not None else "KD —"
+    elif t in ("macd_golden", "macd_death"):
+        h = _f(last.get("hist"))
+        cur = f"柱狀體 {h:+.2f}" if h is not None else "MACD —"
+    return {"price": price, "change_pct": chg, "current": cur, "distance": dist}
+
+
 def check_alerts() -> dict:
-    """檢查所有警示（管理員專用，背景推播也使用）。"""
+    """檢查所有警示（管理員專用，背景推播也使用）。暫停的警示會顯示狀態但不觸發。"""
     alerts = get_alerts()
     codes = sorted({a["code"] for a in alerts})
     rt_all = D.get_realtime(codes)
-    triggered = []
+    triggered, rows = [], []
+    frames = {}
     for code in codes:
         try:
-            p, df, x = _load_frame(code, rt_all.get(code))
-        except Exception:  # noqa: BLE001
-            continue
-        name = (rt_all.get(code) or {}).get("name") or p.name
-        for a in alerts:
-            if a["code"] == code:
-                msg = evaluate(a, df, x)
-                if msg:
-                    triggered.append({**a, "name": name, "message": msg})
-    return {"alerts": alerts, "triggered": triggered}
+            frames[code] = _load_frame(code, rt_all.get(code))
+        except Exception as e:  # noqa: BLE001
+            frames[code] = e
+    for a in alerts:
+        row = {**a, "text": describe(a), "name": D.stock_name(a["code"]), "state": None, "message": None, "error": None}
+        fr = frames.get(a["code"])
+        if isinstance(fr, Exception):
+            row["error"] = str(fr)
+        elif fr is not None:
+            p, df, x = fr
+            row["name"] = (rt_all.get(a["code"]) or {}).get("name") or p.name
+            row["state"] = alert_state(a, df, x)
+            msg = evaluate(a, df, x)
+            if msg and a.get("enabled", True):
+                row["message"] = msg
+                triggered.append({**a, "name": row["name"], "message": msg})
+        rows.append(row)
+    return {"alerts": rows, "triggered": triggered}

@@ -143,3 +143,68 @@ tr.reasons ul { margin: 0; padding-left: 18px; }
 #picks-table .tag { display: inline-block; white-space: nowrap; margin: 2px 0; }
 
 .toast { white-space: pre-line; }
+
+/* ---------------- 管理後台 */
+.login-card { max-width: 460px; margin: 40px auto; }
+.adm-head { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; flex-wrap: wrap; }
+.adm-head h2 { margin: 0; font-size: 20px; }
+.spacer { flex: 1; }
+.chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.chip { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--muted); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.chip b { font-size: 13px; }
+.chip span { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip.ok { border-left-color: var(--down); } .chip.ok b { color: var(--down); }
+.chip.warn { border-left-color: var(--warn); } .chip.warn b { color: var(--warn); }
+.chip.bad { border-left-color: var(--up); } .chip.bad b { color: var(--up); }
+.banner { border-radius: 10px; padding: 12px 16px; margin-bottom: 14px; font-size: 13px; }
+.banner.warn { background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.5); }
+.banner ol { margin: 6px 0; padding-left: 20px; }
+.banner code { background: var(--panel2); padding: 1px 6px; border-radius: 4px; }
+.adm-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; }
+.alert-form { display: grid; gap: 10px; }
+.alert-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.alert-form label small { font-weight: 400; }
+.unit-input { display: flex; align-items: center; gap: 6px; }
+.unit-input input { flex: 1; }
+.unit-input span { color: var(--muted); min-width: 1.5em; }
+#alert-preview { min-height: 1.2em; margin: -4px 0 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.templates { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; }
+.templates #alert-templates { display: contents; }
+.action-list { list-style: none; margin: 0; padding: 0; }
+.action-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px dashed var(--border); }
+.action-list li:last-child { border-bottom: 0; }
+.action-list li div { display: flex; flex-direction: column; gap: 2px; }
+.action-list small { font-size: 12px; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.card-head h3 { margin: 0; }
+.seg button i { font-style: normal; opacity: .7; margin-left: 2px; }
+.alert-table td { vertical-align: middle; }
+.alert-table td, .alert-table th { text-align: left !important; }
+.alert-table .msg { font-size: 12px; color: var(--warn); margin-top: 2px; }
+.alert-table .actions { text-align: right !important; white-space: nowrap; }
+.alert-table .actions button { margin-left: 4px; }
+.alert-table .empty { text-align: center !important; padding: 24px; white-space: normal; }
+.alert-row.paused td:not(.actions) { opacity: .5; }
+.alert-row.firing { background: rgba(245,158,11,.08); }
+.status { font-size: 12px; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+.status.watching { background: rgba(34,197,94,.15); color: var(--down); }
+.status.firing { background: rgba(245,158,11,.2); color: var(--warn); }
+.status.fired { background: rgba(76,154,255,.18); color: var(--accent); }
+.status.paused { background: var(--panel2); color: var(--muted); }
+.status.bad { background: rgba(239,68,68,.15); color: var(--up); }
+.inline-edit { width: 7em; padding: 3px 6px; }
+.inline-edit.wide { width: 12em; }
+button.danger { color: var(--up); }
+.diag-title { font-weight: 600; color: var(--muted); font-size: 12px; padding-top: 10px !important; border-bottom: 0 !important; }
+#watch-table .actions { white-space: nowrap; }
+#watch-table .actions button { margin-left: 4px; }
+
+@media (max-width: 900px) {
+  .adm-grid { grid-template-columns: 1fr; }
+  .alert-table thead { display: none; }
+  .alert-table tr { display: block; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; padding: 6px 8px; }
+  .alert-table td { display: flex; justify-content: space-between; gap: 10px; border: 0; padding: 4px 4px; white-space: normal; }
+  .alert-table td[data-label]::before { content: attr(data-label); color: var(--muted); font-size: 12px; flex: none; }
+  .alert-table td > span { text-align: right; }
+  .alert-table td.actions { justify-content: flex-end; }
+}

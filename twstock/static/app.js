@@ -84,6 +84,7 @@ function showTab(name) {
   $$('.tab').forEach((s) => s.classList.toggle('active', s.id === `tab-${name}`));
   store.set('tab', name);
   if (name === 'monitor') loadMonitor();
+  if (name === 'admin') { if (admin.ok) loadAdmin(); else setTimeout(() => $('#admin-pw')?.focus(), 50); }
   if (name === 'analysis' && !state.history) loadAnalysis();
   if (name === 'portfolio' && pfDirty) loadPortfolio();
   if (name === 'screener' && !picksLoaded) loadPicks();
@@ -269,7 +270,6 @@ async function loadMonitor() {
     renderWatchlist(d.rows);
     $('#monitor-time').textContent = `更新於 ${new Date().toLocaleTimeString('zh-TW')}${isMarketOpen() ? '（盤中）' : '（非交易時段）'}`;
   } catch (e) { toast(e.message, true); }
-  if (admin.ok) loadAlerts();
 }
 
 function renderWatchlist(rows) {
@@ -281,61 +281,8 @@ function renderWatchlist(rows) {
       <td class="${cls(r.change)}"><b>${num(r.price)}</b></td><td class="${cls(r.change)}">${signed(r.change)}</td><td class="${cls(r.change)}">${pct(r.change_pct, 2, 1)}</td>
       <td>${num(r.open)}</td><td>${num(r.high)}</td><td>${num(r.low)}</td><td>${int(r.volume)}</td>
       <td class="${r.rsi >= 70 ? 'up' : r.rsi <= 30 ? 'down' : ''}">${num(r.rsi, 1)}</td><td>${num(r.k, 0)} / ${num(r.d, 0)}</td>
-      <td class="muted">${esc(r.time)}</td><td><button class="ghost small" data-del="${esc(r.code)}">移除</button></td></tr>`).join('')
+      <td class="muted">${esc(r.time)}</td><td class="actions"><button class="ghost small" data-bell="${esc(r.code)}" title="為這檔設定伺服器警示">🔔</button><button class="ghost small" data-del="${esc(r.code)}">移除</button></td></tr>`).join('')
     || '<tr><td colspan="14" class="muted">自選清單是空的，從上方加入股票代號</td></tr>';
-}
-
-// ---- 管理員警示（伺服器端，會推播到 Telegram）
-function renderAdmin() {
-  $('#alert-login').hidden = admin.ok;
-  $('#alert-admin').hidden = !admin.ok;
-  $('#triggered-card').hidden = !admin.ok;
-  $('#admin-logout').hidden = !admin.ok || !state.config.admin_enabled;
-  $('#admin-login').hidden = !state.config.admin_enabled;
-  $('#admin-disabled').hidden = state.config.admin_enabled;
-}
-
-async function tryAdmin(password, quiet = false) {
-  admin.password = password;
-  try {
-    await api('/api/admin/check');
-    admin.ok = true;
-    store.set('adminPw', password || null, sessionStorage);
-    if (!quiet) toast('已登入管理員');
-  } catch (e) {
-    admin.ok = false; admin.password = '';
-    store.set('adminPw', null, sessionStorage);
-    if (!quiet) toast(e.message, true);
-  }
-  renderAdmin();
-  if (admin.ok) loadAlerts();
-}
-
-async function loadAlerts() {
-  try {
-    const d = await api('/api/alerts');
-    const types = state.config.alert_types;
-    state.alertExport = d.export;
-    const box = $('#alert-persist');
-    box.hidden = !d.alerts.length && d.persisted;
-    box.innerHTML = d.persisted
-      ? '<span class="tag add">已保存</span> 伺服器重啟後會自動還原這些警示。'
-      : `<span class="tag reduce">⚠ 尚未保存</span> 免費主機重啟或重新部署後警示會消失。按
-         <button class="ghost small" type="button" id="alert-copy">複製警示設定</button>，
-         到 Render → Environment 把內容貼到 <code>TWSTOCK_ALERTS</code>（新增或覆蓋）並儲存。每次新增 / 刪除警示後都要重新複製一次。`;
-    $('#alert-list').innerHTML = d.alerts.length ? d.alerts.map((a) => `<li><span><b>${esc(a.code)}</b> ${esc(types[a.type]?.label || a.type)} ${a.value ?? ''}</span><button class="ghost small" data-alert="${a.id}">刪除</button></li>`).join('') : '<li class="muted">尚未設定警示</li>';
-    $('#triggered-list').innerHTML = d.triggered.length ? d.triggered.map((t) => `<li><span><b>${esc(t.code)} ${esc(t.name)}</b>　${esc(t.message)}</span><span class="tag fire">觸發</span></li>`).join('') : '<li class="muted">目前沒有觸發的警示</li>';
-    const today = new Date().toDateString();
-    d.triggered.forEach((t) => {
-      const key = `${t.id}-${today}`;
-      if (notified.has(key)) return;
-      notified.add(key);
-      if (window.Notification && Notification.permission === 'granted') new Notification(`${t.code} ${t.name}`, { body: t.message });
-    });
-  } catch (e) {
-    if (/密碼|管理員/.test(e.message)) { admin.ok = false; renderAdmin(); }
-    toast(e.message, true);
-  }
 }
 
 function saveWatchlist(codes) {
@@ -354,41 +301,300 @@ function addToWatch(code) {
 }
 
 function initMonitor() {
-  const sel = $('#alert-type');
-  sel.innerHTML = Object.entries(state.config.alert_types).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
-  const syncValue = () => { $('#alert-value').disabled = !state.config.alert_types[sel.value].needs_value; };
-  sel.addEventListener('change', syncValue); syncValue();
-
   $('#watch-add').addEventListener('submit', (e) => { e.preventDefault(); addToWatch($('#watch-code').value); $('#watch-code').value = ''; });
   $('#watch-table').addEventListener('click', (e) => {
     const del = e.target.closest('[data-del]');
     if (del) { e.stopPropagation(); return saveWatchlist(getWatchlist().filter((c) => c !== del.dataset.del)); }
+    const bell = e.target.closest('[data-bell]');
+    if (bell) { e.stopPropagation(); return openAlertFor(bell.dataset.bell); }
     const tr = e.target.closest('tr[data-code]');
     if (tr) { showTab('analysis'); loadAnalysis(tr.dataset.code); }
   });
-  $('#admin-login').addEventListener('submit', (e) => { e.preventDefault(); tryAdmin($('#admin-pw').value); $('#admin-pw').value = ''; });
-  $('#admin-logout').addEventListener('click', () => { admin.ok = false; admin.password = ''; store.set('adminPw', null, sessionStorage); renderAdmin(); });
-  $('#alert-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const v = $('#alert-value').value;
+  $('#refresh-now').addEventListener('click', loadMonitor);
+  monitorTimer = setInterval(() => {
+    if (!isMarketOpen()) return;
+    if ($('#auto-refresh').checked && $('#tab-monitor').classList.contains('active')) loadMonitor();
+    if (admin.ok && $('#tab-admin').classList.contains('active')) loadAdmin(true);
+  }, 60_000);
+}
+
+// ================================================================ 管理後台（伺服器警示、推播、診斷）
+const adminState = { alerts: [], filter: 'all', export: '[]', status: null };
+const channelName = (k) => (k === 'line' ? 'LINE' : 'Telegram');
+const okChannels = (r) => ['telegram', 'line'].filter((k) => r[k]).map(channelName);
+const errText = (errors) => Object.entries(errors || {}).map(([k, v]) => `${channelName(k)}：${v}`).join('\n');
+
+function openAlertFor(code) {
+  showTab('admin');
+  $('#alert-code').value = code;
+  $('#alert-code').dispatchEvent(new Event('input'));
+  if (admin.ok) { $('#alert-form').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('#alert-value').focus(); }
+}
+
+function renderAdminGate() {
+  $('#adm-login').hidden = admin.ok;
+  $('#adm-main').hidden = !admin.ok;
+  $('#admin-login').hidden = !state.config.admin_enabled;
+  $('#admin-disabled').hidden = state.config.admin_enabled;
+  $('#admin-logout').hidden = !state.config.admin_enabled;
+  $('[data-tab="admin"]').textContent = admin.ok ? '管理後台' : '管理後台 🔒';
+}
+
+async function tryAdmin(password, quiet = false) {
+  admin.password = password;
+  try {
+    await api('/api/admin/check');
+    admin.ok = true;
+    store.set('adminPw', password || null, sessionStorage);
+    if (!quiet) toast('已登入管理員');
+  } catch (e) {
+    admin.ok = false; admin.password = '';
+    store.set('adminPw', null, sessionStorage);
+    if (!quiet) toast(e.message, true);
+  }
+  renderAdminGate();
+  if (admin.ok && $('#tab-admin').classList.contains('active')) loadAdmin();
+}
+
+async function loadAdmin(quiet = false) {
+  if (!admin.ok) return;
+  try {
+    const [alerts, status] = await Promise.all([api('/api/alerts'), api('/api/admin/status?probe=0')]);
+    adminState.alerts = alerts.alerts;
+    adminState.export = alerts.export;
+    adminState.status = status;
+    renderOverview(status, alerts);
+    renderPersist(alerts);
+    renderAlertTable();
+    renderHistory(alerts.history);
+    $('#adm-updated').textContent = `更新於 ${new Date().toLocaleTimeString('zh-TW')}`;
+    notifyTriggered(alerts.triggered);
+  } catch (e) {
+    if (/密碼|管理員/.test(e.message)) { admin.ok = false; renderAdminGate(); }
+    if (!quiet) toast(e.message, true);
+  }
+}
+
+function chip(ok, label, detail, warn = false) {
+  return `<div class="chip ${ok ? 'ok' : warn ? 'warn' : 'bad'}"><b>${ok ? '✓' : warn ? '!' : '✕'} ${esc(label)}</b><span>${esc(detail)}</span></div>`;
+}
+
+function renderOverview(st, al) {
+  const firing = al.alerts.filter((a) => a.message).length;
+  const line = st.line, tg = st.telegram, lp = st.picks.last_push, cron = st.cron;
+  $('#adm-overview').innerHTML = [
+    chip(firing === 0, '警示', `${al.alerts.length} 筆（啟用 ${st.alerts.enabled}）${firing ? `｜觸發中 ${firing}` : ''}`, firing > 0),
+    chip(line.enabled && !line.last_error, 'LINE', line.enabled ? (line.last_error ? '最近一次失敗' : line.broadcast ? '廣播給所有好友' : `推播給 ${line.to.length} 個對象`) : '未設定', !line.access_token),
+    chip(tg.configured && !tg.last_error, 'Telegram', tg.configured ? (tg.last_error ? '最近一次失敗' : '已設定') : '未設定（選填）', !tg.configured),
+    chip(cron.configured && !!cron.last_tick, '外部排程', cron.configured ? (cron.last_tick ? `最近 ${cron.last_tick.at.slice(5, 16)}` : '尚未收到呼叫') : '未設定 TWSTOCK_CRON_KEY'),
+    chip(!lp || lp.ok, '每日精選', lp ? `${lp.at.slice(5)} ${lp.ok ? '推播成功' : '失敗'}` : `週一至五 ${st.picks.time}`, !lp),
+    chip(st.alerts.persisted || st.alerts.count === 0, '警示保存', st.alerts.count === 0 ? '無警示' : st.alerts.persisted ? '重啟後可還原' : '尚未保存'),
+  ].join('');
+  $('#adm-schedule').textContent = `每日精選：週一至週五 ${st.picks.time} 推播（伺服器醒得晚時 13:30 前補發）｜警示：盤中 09:00–13:35 每分鐘檢查，同一警示每天推播一次｜伺服器時間 ${st.server_time}`;
+}
+
+function renderPersist(al) {
+  const box = $('#alert-persist');
+  box.hidden = al.persisted || !al.alerts.length;
+  box.innerHTML = `<div><b>⚠ 警示設定尚未保存</b>：免費主機重新部署或重啟後，這些警示會消失。</div>
+    <ol><li>按 <button class="small" type="button" id="alert-copy">複製警示設定</button></li>
+    <li>到 Render → Environment，把內容貼到 <code>TWSTOCK_ALERTS</code>（新增或覆蓋）並儲存</li></ol>
+    <div class="muted">每次新增、修改、暫停或刪除警示後，這個提示會再出現，提醒你重新複製。</div>`;
+}
+
+function alertStatus(a) {
+  if (a.error) return ['bad', '資料錯誤'];
+  if (!a.enabled) return ['paused', '已暫停'];
+  if (a.message) return [a.pushed_today ? 'fired' : 'firing', a.pushed_today ? '觸發・已推播' : '觸發中'];
+  return ['watching', '監控中'];
+}
+
+function renderAlertTable() {
+  const f = adminState.filter;
+  const list = adminState.alerts.filter((a) => f === 'all' || (f === 'firing' && a.message && a.enabled) || (f === 'watching' && a.enabled && !a.message) || (f === 'paused' && !a.enabled));
+  const counts = { all: adminState.alerts.length, firing: adminState.alerts.filter((a) => a.message && a.enabled).length,
+    watching: adminState.alerts.filter((a) => a.enabled && !a.message).length, paused: adminState.alerts.filter((a) => !a.enabled).length };
+  $$('#alert-filter button').forEach((b) => { b.classList.toggle('active', b.dataset.f === f); b.querySelector('i').textContent = counts[b.dataset.f]; });
+  const types = state.config.alert_types;
+  $('#alert-table').innerHTML = `<thead><tr><th>股票</th><th>條件</th><th>目前</th><th>離觸發</th><th>狀態</th><th>備註</th><th></th></tr></thead><tbody>${
+    list.map((a) => {
+      const [sc, sl] = alertStatus(a);
+      const st = a.state || {};
+      const editing = adminState.editing === a.id;
+      const unit = types[a.type]?.unit || '';
+      const cond = editing && types[a.type]?.needs_value
+        ? `${esc(types[a.type].label)} <input class="inline-edit" data-edit-value type="number" step="any" value="${a.value ?? ''}"> ${esc(unit)}`
+        : esc(a.text);
+      const note = editing ? `<input class="inline-edit wide" data-edit-note maxlength="60" value="${esc(a.note || '')}" placeholder="備註">` : esc(a.note || '');
+      return `<tr class="alert-row ${sc}" data-id="${esc(a.id)}">
+        <td data-label="股票"><span><b>${esc(a.code)}</b> ${esc(a.name || '')}</span></td>
+        <td data-label="條件"><span>${cond}${a.message ? `<div class="msg">🔔 ${esc(a.message)}</div>` : ''}</span></td>
+        <td data-label="目前" class="muted"><span>${a.error ? `<span class="down">${esc(a.error)}</span>` : esc(st.current || '—')}</span></td>
+        <td data-label="離觸發"><span>${a.message ? '<span class="tag fire">已達成</span>' : esc(st.distance || '—')}</span></td>
+        <td data-label="狀態"><span class="status ${sc}">${sl}</span></td>
+        <td data-label="備註" class="muted"><span>${note}</span></td>
+        <td class="actions">${editing
+          ? `<button class="small" data-act="save">儲存</button><button class="ghost small" data-act="cancel">取消</button>`
+          : `<button class="ghost small" data-act="edit" title="修改數值或備註">修改</button>
+             <button class="ghost small" data-act="toggle">${a.enabled ? '暫停' : '啟用'}</button>
+             <button class="ghost small danger" data-act="del">刪除</button>`}</td></tr>`;
+    }).join('') || `<tr><td colspan="7" class="muted empty">${adminState.alerts.length ? '這個分類沒有警示' : '還沒有警示。在左上方「新增警示」設定第一個，或到「自選監控」按股票旁的 🔔。'}</td></tr>`
+  }</tbody>`;
+}
+
+function renderHistory(hist) {
+  $('#alert-history').innerHTML = hist.length ? hist.map((h) => `<li><span><span class="muted">${esc(h.at)}</span>　<b>${esc(h.code)} ${esc(h.name)}</b>　${esc(h.message)}</span>
+    <span>${h.channels.length ? h.channels.map((c) => `<span class="tag add">${channelName(c)}</span>`).join(' ') : `<span class="tag stop" title="${esc(errText(h.errors))}">未送出</span>`}</span></li>`).join('')
+    : '<li class="muted">尚無推播紀錄（伺服器重啟後清空）。盤中警示觸發時會記錄在這裡。</li>';
+}
+
+function notifyTriggered(triggered) {
+  const today = new Date().toDateString();
+  triggered.forEach((t) => {
+    const key = `${t.id}-${today}`;
+    if (notified.has(key)) return;
+    notified.add(key);
+    if (window.Notification && Notification.permission === 'granted') new Notification(`${t.code} ${t.name}`, { body: t.message });
+  });
+}
+
+function syncAlertType() {
+  const t = state.config.alert_types[$('#alert-type').value];
+  $('#alert-value-wrap').hidden = !t.needs_value;
+  $('#alert-value').required = t.needs_value;
+  $('#alert-unit').textContent = t.unit || '';
+  $('#alert-hint').textContent = t.hint || '';
+  $('#alert-value').placeholder = t.hint ? t.hint.replace(/^例：/, '').split(/[（、]/)[0] : '';
+}
+
+const ALERT_TEMPLATES = [
+  { label: '跌破月線', type: 'cross_ma_down', value: 20 },
+  { label: '突破季線', type: 'cross_ma_up', value: 60 },
+  { label: '單日大漲 5%', type: 'change_above', value: 5 },
+  { label: '單日大跌 5%', type: 'change_below', value: -5 },
+  { label: 'RSI 超賣', type: 'rsi_below', value: 30 },
+  { label: '爆量 2 倍', type: 'volume_surge', value: 2 },
+  { label: 'KD 黃金交叉', type: 'kd_golden' },
+];
+
+let previewTimer;
+function previewCodes() {
+  clearTimeout(previewTimer);
+  const codes = $('#alert-code').value.split(/[,，\s]+/).map((c) => c.trim()).filter(Boolean);
+  if (!codes.length) { $('#alert-preview').textContent = ''; return; }
+  previewTimer = setTimeout(async () => {
     try {
-      await api('/api/alerts', { method: 'POST', body: { code: $('#alert-code').value.trim(), type: sel.value, value: v === '' ? null : +v } });
-      $('#alert-value').value = ''; loadAlerts();
-    } catch (err) { toast(err.message, true); }
+      const d = await api(`/api/quotes?codes=${encodeURIComponent(codes.slice(0, 10).join(','))}`);
+      $('#alert-preview').innerHTML = d.rows.map((r) => r.error ? `<span class="down">${esc(r.code)} 查無資料</span>`
+        : `<span><b>${esc(r.code)} ${esc(r.name)}</b> 現價 ${num(r.price)} <span class="${cls(r.change)}">${pct(r.change_pct, 2, 1)}</span></span>`).join('　');
+      state.alertPreviewPrice = d.rows.length === 1 ? d.rows[0].price : null;
+    } catch { $('#alert-preview').textContent = ''; }
+  }, 400);
+}
+
+async function alertAction(id, act, row) {
+  const a = adminState.alerts.find((x) => x.id === id);
+  if (!a) return;
+  try {
+    if (act === 'del') {
+      if (!confirm(`確定刪除「${a.code} ${a.name}：${a.text}」？`)) return;
+      await api(`/api/alerts/${id}`, { method: 'DELETE' });
+      toast('已刪除警示');
+    } else if (act === 'toggle') {
+      await api(`/api/alerts/${id}`, { method: 'PATCH', body: { enabled: !a.enabled } });
+      toast(a.enabled ? '已暫停，暫停期間不會推播' : '已重新啟用');
+    } else if (act === 'edit') {
+      adminState.editing = id; return renderAlertTable();
+    } else if (act === 'cancel') {
+      adminState.editing = null; return renderAlertTable();
+    } else if (act === 'save') {
+      const v = $('[data-edit-value]', row);
+      await api(`/api/alerts/${id}`, { method: 'PATCH', body: { value: v ? +v.value : null, note: $('[data-edit-note]', row).value } });
+      adminState.editing = null;
+      toast('已更新警示');
+    }
+    loadAdmin(true);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function runDiagnostics() {
+  const r = await api('/api/admin/status');
+  const mark = (ok) => (ok ? '✅' : '❌');
+  const item = (ok, text) => `<li class="sugg"><span>${mark(ok)}</span><span>${text}</span></li>`;
+  const group = (title, items) => `<li class="diag-title">${title}</li>${items.join('')}`;
+  const lp = r.picks.last_push, line = r.line;
+  $('#status-list').innerHTML = [
+    group('資料來源', [
+      ...Object.entries(r.sources).map(([name, v]) => item(v.ok, `${esc(name)}　${v.ok ? `${v.ms} ms` : `連線失敗：${esc(v.error || `HTTP ${v.status}`)}`}`)),
+      item(!r.offline_fallback, r.offline_fallback ? '目前資料來源連線失敗，網站暫時顯示「示範資料」（推播不會使用示範資料）' : `資料模式：${esc(r.source_mode)}`),
+      ...Object.entries(r.fundamentals || {}).map(([k, v]) => item(v.startsWith('OK'), `基本面「${esc(k)}」：${esc(v)}`)),
+    ]),
+    group('推播管道', [
+      item(line.access_token, `LINE access token ${line.access_token ? '已設定' : '未設定'}`),
+      item(line.channel_secret, `LINE channel secret ${line.channel_secret ? '已設定' : '未設定（機器人無法回話）'}`),
+      item(line.enabled, line.broadcast ? 'LINE 推播對象：所有好友（廣播）' : line.to.length ? `LINE 推播對象：${line.to.map(esc).join('、')}` : 'LINE 推播對象未設定（LINE_TO）'),
+      ...(line.last_error ? [item(false, `LINE 最近錯誤：${esc(line.last_error)}`)] : []),
+      item(r.telegram.configured && !r.telegram.last_error, `Telegram ${r.telegram.configured ? '已設定' : '未設定（選填）'}${r.telegram.last_error && r.telegram.configured ? `，但最近一次失敗：${esc(r.telegram.last_error)}` : ''}`),
+    ]),
+    group('排程與保存', [
+      item(r.cron.configured && !!r.cron.last_tick, r.cron.configured
+        ? (r.cron.last_tick ? `排程最近一次執行：${esc(r.cron.last_tick.at)}（${esc(r.cron.last_tick.source)}）` : '已設定 TWSTOCK_CRON_KEY，但伺服器啟動後還沒收到排程呼叫')
+        : '未設定外部排程（TWSTOCK_CRON_KEY）：免費主機休眠時不會推播'),
+      lp ? item(lp.ok, `最近一次精選推播（${esc(lp.at)}）：${lp.ok ? '成功' : esc(lp.error || errText(lp.errors).replace(/\n/g, '；') || '失敗')}`) : item(true, `尚未推播過每日精選（週一至五 ${esc(r.picks.time)}；伺服器重啟後清空紀錄）`),
+      item(r.alerts.count === 0 || r.alerts.persisted, `伺服器警示 ${r.alerts.count} 筆${r.alerts.count ? (r.alerts.persisted ? '，已保存，重啟後可還原' : '，尚未保存到 TWSTOCK_ALERTS，重啟後會消失') : ''}`),
+    ]),
+  ].join('');
+  $('#status-time').textContent = `診斷時間 ${r.server_time}`;
+}
+
+function initAdmin() {
+  const types = state.config.alert_types;
+  const groups = {};
+  Object.entries(types).forEach(([k, v]) => (groups[v.group || '其他'] ||= []).push([k, v]));
+  $('#alert-type').innerHTML = Object.entries(groups).map(([g, items]) => `<optgroup label="${esc(g)}">${items.map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('')}</optgroup>`).join('');
+  $('#alert-type').addEventListener('change', syncAlertType);
+  syncAlertType();
+  $('#alert-templates').innerHTML = ALERT_TEMPLATES.map((t, i) => `<button type="button" class="ghost small" data-tpl="${i}">${esc(t.label)}</button>`).join('');
+  $('#alert-templates').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tpl]'); if (!b) return;
+    const t = ALERT_TEMPLATES[+b.dataset.tpl];
+    $('#alert-type').value = t.type; syncAlertType();
+    $('#alert-value').value = t.value ?? '';
+  });
+  $('#alert-code').addEventListener('input', previewCodes);
+  $('#alert-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    busy($('#alert-form button[type=submit]'), async () => {
+      const codes = $('#alert-code').value.split(/[,，\s]+/).map((c) => c.trim()).filter(Boolean);
+      const v = $('#alert-value').value;
+      const body = { codes, type: $('#alert-type').value, value: $('#alert-value-wrap').hidden || v === '' ? null : +v, note: $('#alert-note').value.trim() };
+      const r = await api('/api/alerts', { method: 'POST', body });
+      toast(`已新增 ${r.created.length} 個警示`);
+      $('#alert-value').value = ''; $('#alert-note').value = '';
+      loadAdmin(true);
+    });
+  });
+  $('#alert-filter').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-f]'); if (!b) return;
+    adminState.filter = b.dataset.f; renderAlertTable();
+  });
+  $('#alert-table').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const row = b.closest('tr[data-id]');
+    alertAction(row.dataset.id, b.dataset.act, row);
+  });
+  $('#alert-table').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.matches('.inline-edit')) { const row = e.target.closest('tr[data-id]'); alertAction(row.dataset.id, 'save', row); }
+    if (e.key === 'Escape') { adminState.editing = null; renderAlertTable(); }
   });
   $('#alert-persist').addEventListener('click', async (e) => {
     if (!e.target.closest('#alert-copy')) return;
-    try { await navigator.clipboard.writeText(state.alertExport || '[]'); toast('已複製，請貼到 Render 的環境變數 TWSTOCK_ALERTS'); }
-    catch { prompt('請手動複製以下內容，貼到 Render 的環境變數 TWSTOCK_ALERTS：', state.alertExport || '[]'); }
+    try { await navigator.clipboard.writeText(adminState.export || '[]'); toast('已複製，請貼到 Render 的環境變數 TWSTOCK_ALERTS'); }
+    catch { prompt('請手動複製以下內容，貼到 Render 的環境變數 TWSTOCK_ALERTS：', adminState.export || '[]'); }
   });
-  $('#alert-list').addEventListener('click', async (e) => {
-    const b = e.target.closest('[data-alert]'); if (!b) return;
-    try { await api(`/api/alerts/${b.dataset.alert}`, { method: 'DELETE' }); loadAlerts(); } catch (err) { toast(err.message, true); }
-  });
-  $('#refresh-now').addEventListener('click', loadMonitor);
-  const channelName = (k) => (k === 'line' ? 'LINE' : 'Telegram');
-  const okChannels = (r) => ['telegram', 'line'].filter((k) => r[k]).map(channelName);
-  const errText = (errors) => Object.entries(errors || {}).map(([k, v]) => `${channelName(k)}：${v}`).join('\n');
+  $('#admin-login').addEventListener('submit', (e) => { e.preventDefault(); tryAdmin($('#admin-pw').value); $('#admin-pw').value = ''; });
+  $('#admin-logout').addEventListener('click', () => { admin.ok = false; admin.password = ''; store.set('adminPw', null, sessionStorage); renderAdminGate(); toast('已登出'); });
+  $('#adm-refresh').addEventListener('click', (e) => busy(e.target, () => loadAdmin()));
   $('#push-picks').addEventListener('click', (e) => busy(e.target, async () => {
     toast('計算今日精選中…首次可能需要 1～2 分鐘，請勿關閉頁面');
     const r = await api('/api/admin/push-picks', { method: 'POST' });
@@ -396,44 +602,20 @@ function initMonitor() {
     const err = errText(r.errors);
     if (ok.length) toast(`已推播今日精選到 ${ok.join('、')}${err ? `\n未成功：\n${err}` : ''}`, !!err);
     else toast(`已算出今日精選，但推播失敗：\n${err || '沒有設定任何推播管道'}`, true);
+    loadAdmin(true);
   }));
   $('#test-notify').addEventListener('click', (e) => busy(e.target, async () => {
     const r = await api('/api/admin/test-notify', { method: 'POST' });
     const err = errText(r.errors);
     toast(`已送出：${okChannels(r).join('、')}${err ? `\n未成功：\n${err}` : ''}`, !!err);
+    loadAdmin(true);
   }));
-  $('#sys-status').addEventListener('click', (e) => busy(e.target, async () => {
-    const r = await api('/api/admin/status');
-    const mark = (ok) => (ok ? '✅' : '❌');
-    const item = (ok, text) => `<li class="sugg"><span>${mark(ok)}</span><span>${text}</span></li>`;
-    const lp = r.picks.last_push;
-    const line = r.line;
-    $('#status-list').innerHTML = [
-      ...Object.entries(r.sources).map(([name, v]) => item(v.ok, `${esc(name)}　${v.ok ? `${v.ms} ms` : `連線失敗：${esc(v.error || `HTTP ${v.status}`)}`}`)),
-      item(!r.offline_fallback, r.offline_fallback ? '目前資料來源連線失敗，網站暫時顯示「示範資料」（推播不會使用示範資料）' : `資料模式：${esc(r.source_mode)}`),
-      item(line.access_token, `LINE access token ${line.access_token ? '已設定' : '未設定'}`),
-      item(line.channel_secret, `LINE channel secret ${line.channel_secret ? '已設定' : '未設定（機器人無法回話）'}`),
-      item(line.enabled, line.broadcast ? 'LINE 推播對象：所有好友（廣播）' : line.to.length ? `LINE 推播對象：${line.to.map(esc).join('、')}` : 'LINE 推播對象未設定（LINE_TO）'),
-      ...(line.last_error ? [item(false, `LINE 最近錯誤：${esc(line.last_error)}`)] : []),
-      item(r.telegram.configured && !(r.telegram.last_error && r.telegram.configured), `Telegram ${r.telegram.configured ? '已設定' : '未設定（選填）'}${r.telegram.last_error && r.telegram.configured ? `，但最近一次失敗：${esc(r.telegram.last_error)}` : ''}`),
-      item(r.picks.enabled, `每日精選：週一至週五 ${esc(r.picks.time)} 推播｜伺服器時間 ${esc(r.server_time)}`),
-      item(r.cron.configured && !!r.cron.last_tick, r.cron.configured
-        ? (r.cron.last_tick ? `排程最近一次執行：${esc(r.cron.last_tick.at)}（${esc(r.cron.last_tick.source)}）` : '已設定 TWSTOCK_CRON_KEY，但伺服器啟動後還沒收到排程呼叫')
-        : '未設定外部排程（TWSTOCK_CRON_KEY）：免費主機休眠時不會推播'),
-      item(r.alerts.count === 0 || r.alerts.seeded > 0, `伺服器警示 ${r.alerts.count} 筆${r.alerts.count ? (r.alerts.seeded ? `，重啟後可還原 ${r.alerts.seeded} 筆` : '，尚未保存到 TWSTOCK_ALERTS，重啟後會消失') : '（尚未設定，所以不會有警示推播）'}`),
-      ...Object.entries(r.fundamentals || {}).map(([k, v]) => item(v.startsWith('OK'), `基本面資料「${esc(k)}」：${esc(v)}`)),
-      lp ? item(lp.ok, `最近一次精選推播（${esc(lp.at)}）：${lp.ok ? '成功' : esc(lp.error || errText(lp.errors) || '失敗')}`) : item(true, '尚未推播過每日精選（伺服器重啟後會清空紀錄）'),
-    ].join('');
-    $('#status-panel').hidden = false;
-  }));
+  $('#sys-status').addEventListener('click', (e) => busy(e.target, runDiagnostics));
   $('#notify-btn').addEventListener('click', async () => {
     if (!window.Notification) return toast('此瀏覽器不支援桌面通知', true);
-    toast((await Notification.requestPermission()) === 'granted' ? '已開啟桌面通知' : '未取得通知權限');
+    toast((await Notification.requestPermission()) === 'granted' ? '已開啟桌面通知，觸發中的警示會跳出通知' : '未取得通知權限', false);
   });
-  monitorTimer = setInterval(() => {
-    if ($('#auto-refresh').checked && isMarketOpen() && $('#tab-monitor').classList.contains('active')) loadMonitor();
-  }, 60_000);
-  renderAdmin();
+  renderAdminGate();
   tryAdmin(admin.password, true); // 已存的密碼，或本機未設密碼時自動取得管理權限
 }
 
@@ -840,7 +1022,7 @@ async function init() {
     showTab('analysis'); loadAnalysis(code);
   });
   $('#cmp-form').addEventListener('submit', (e) => { e.preventDefault(); busy($('#cmp-form button'), runCompare); });
-  initAnalysis(); initMonitor(); initPortfolio(); initBacktest(); initScreener();
+  initAnalysis(); initMonitor(); initAdmin(); initPortfolio(); initBacktest(); initScreener();
   const tab = new URLSearchParams(location.search).get('tab') || store.get('tab', null) || 'monitor';
   showTab(tab);
   if (tab === 'compare') runCompare();

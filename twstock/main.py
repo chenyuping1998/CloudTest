@@ -240,9 +240,17 @@ def optimize(req: OptimizeRequest):
 # ---------------------------------------------------------------- 監控
 
 class AlertBody(BaseModel):
-    code: str
+    code: str = ""
+    codes: list[str] | None = Field(None, max_length=30)  # 一次新增到多檔
     type: str
     value: float | None = None
+    note: str = Field("", max_length=60)
+
+
+class AlertPatch(BaseModel):
+    value: float | None = None
+    enabled: bool | None = None
+    note: str | None = Field(None, max_length=60)
 
 
 @app.get("/api/quotes")
@@ -260,17 +268,34 @@ def admin_check(_: None = Depends(require_admin_or_local)):
 
 @app.get("/api/alerts")
 def list_alerts(_: None = Depends(require_admin_or_local)):
-    export = monitor.alerts_export()
-    seed = json.dumps([{k: a[k] for k in ("id", "code", "type", "value")} for a in monitor.seed_alerts()],
-                      ensure_ascii=False, separators=(",", ":"))
-    return {**monitor.check_alerts(), "export": export, "persisted": export == seed}
+    data = monitor.check_alerts()
+    export = monitor.export_json([{k: a[k] for k in monitor.FIELDS} for a in data["alerts"]])
+    sent = set(notifier.sent_today())
+    for a in data["alerts"]:
+        a["pushed_today"] = a["id"] in sent
+    return {**data, "export": export, "persisted": export == monitor.export_json(monitor.seed_alerts()),
+            "history": list(notifier.history), "types": monitor.ALERT_TYPES}
 
 
 @app.post("/api/alerts")
 def post_alert(body: AlertBody, _: None = Depends(require_admin_or_local)):
+    codes = [c for c in (body.codes or [body.code]) if c and c.strip()]
+    if not codes:
+        raise HTTPException(400, "請輸入股票代號")
     try:
-        return monitor.add_alert(body.code, body.type, body.value)
+        created = [monitor.add_alert(c, body.type, body.value, body.note) for c in codes]
     except (ValueError, D.DataError) as e:
+        raise HTTPException(400, str(e)) from e
+    return created[0] if body.codes is None else {"created": created}
+
+
+@app.patch("/api/alerts/{alert_id}")
+def patch_alert(alert_id: str, body: AlertPatch, _: None = Depends(require_admin_or_local)):
+    try:
+        return monitor.update_alert(alert_id, **body.model_dump())
+    except KeyError as e:
+        raise HTTPException(404, "找不到這個警示") from e
+    except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
 
@@ -378,13 +403,13 @@ def cron_tick(key: str = ""):
 
 
 @app.get("/api/admin/status")
-def admin_status(_: None = Depends(require_admin_or_local)):
-    """系統診斷：資料來源連線、推播設定、最近一次精選推播結果。"""
+def admin_status(probe: bool = True, _: None = Depends(require_admin_or_local)):
+    """系統診斷：資料來源連線（probe=0 時略過，供後台總覽快速載入）、推播設定、最近一次精選推播結果。"""
     sources = {
         "Yahoo Finance（日線）": _probe("https://query1.finance.yahoo.com/v8/finance/chart/2330.TW", {"range": "5d", "interval": "1d"}),
         "證交所（法人 / 行情，選股與精選用）": _probe("https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX", {"response": "json", "type": "IND"}),
         "證交所 OpenAPI（月營收 / 本益比）": _probe("https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"),
-    }
+    } if probe else {}
     return {
         "source_mode": D.SOURCE,
         "offline_fallback": D.SOURCE == "auto" and time.time() < D._offline_until,
@@ -397,7 +422,9 @@ def admin_status(_: None = Depends(require_admin_or_local)):
                   "last_push": notifier.last_picks_push, "last_error": notifier.picks_error},
         "server_time": datetime.now(notifier.TZ).strftime("%Y-%m-%d %H:%M:%S"),
         "cron": {"configured": bool(os.environ.get("TWSTOCK_CRON_KEY", "").strip()), "last_tick": notifier.last_tick},
-        "alerts": {"count": len(monitor.get_alerts()), "seeded": len(monitor.seed_alerts())},
+        "alerts": {"count": len(monitor.get_alerts()), "seeded": len(monitor.seed_alerts()),
+                   "enabled": sum(a.get("enabled", True) for a in monitor.get_alerts()),
+                   "persisted": monitor.alerts_export() == monitor.export_json(monitor.seed_alerts())},
         "fundamentals": fundamentals.status(),
     }
 

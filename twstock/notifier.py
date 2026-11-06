@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from collections import deque
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -69,6 +70,14 @@ def send_all(text: str) -> dict[str, bool]:
     return {"telegram": send_telegram(text), "line": line_bot.push(text)}
 
 
+history: deque = deque(maxlen=100)  # 最近的警示推播紀錄（伺服器重啟後清空）
+
+
+def sent_today() -> list[str]:
+    today = datetime.now(TZ).strftime("%Y-%m-%d")
+    return [k.split(":", 1)[1] for k in _sent if k.startswith(today + ":")]
+
+
 def check_once() -> list[dict]:
     if not monitor.get_alerts():
         return []
@@ -80,7 +89,11 @@ def check_once() -> list[dict]:
             continue
         _sent.add(key)
         fresh.append(t)
-        send_all(f"📈 台股警示\n{t['code']} {t['name']}\n{t['message']}")
+        note = f"\n備註：{t['note']}" if t.get("note") else ""
+        result = send_all(f"📈 台股警示\n{t['code']} {t['name']}\n{t['message']}{note}")
+        history.appendleft({"at": datetime.now(TZ).strftime("%m/%d %H:%M"), "id": t["id"], "code": t["code"],
+                            "name": t["name"], "message": t["message"],
+                            "channels": [k for k, ok in result.items() if ok], "errors": send_errors(result)})
     return fresh
 
 
