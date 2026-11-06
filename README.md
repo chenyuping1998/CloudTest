@@ -62,12 +62,25 @@ TWSTOCK_SOURCE=demo uvicorn twstock.main:app
 
 ### LINE 機器人對話（被 tag 或私訊時回答，毒舌風格）
 
-在群組 **@機器人** 或**私訊**問任何問題，機器人會用嘲諷詼諧的「股市老司機」語氣回答；群組中沒被 tag 的訊息一律不回（指令 `2330`、`精選`、`id`、`說明` 照常可用）。
+在群組 **@機器人** 或**私訊**問任何問題，機器人會用很毒舌的「股市老司機」語氣回答（直接吐槽追高、攤平、不停損、討明牌；不罵髒話、不拿身分特徵或自我傷害開玩笑）。群組中沒被 tag 的訊息一律不回；指令 `2330`、`精選`、`id`、`說明` 照常可用。
 
-- **免費模式（預設）**：沒設定 API 金鑰時，用內建嘲諷句庫＋真實報價回覆，例如「長榮 246.50（-4.83%），多空分數 33……單日 -4.8%，這不是回檔，這是自由落體。🪂」。
-- **AI 模式**：在 Render 設定 `ANTHROPIC_API_KEY`（到 [Claude Console](https://console.anthropic.com) 建立）後，改用 Claude 理解問題並回答。問題中提到的股票（代號或常見名稱，如「台積電」「發哥」）會先查報價與技術訊號交給模型，模型只能引用這些數字；問「推薦 / 精選」時會參考已算好的今日精選。
-- **費用控制**：每個聊天室每小時最多 20 次、全站每天最多 300 次 AI 回覆（`TWSTOCK_AI_CHAT_LIMIT`、`TWSTOCK_AI_DAILY_LIMIT`），超過或 API 失敗、被拒答時自動改用句庫。預設模型 `claude-opus-5-5`（`TWSTOCK_AI_MODEL` 可改），思考深度 `low`（`TWSTOCK_AI_EFFORT`），每則回覆約數百 token。預設開啟 server-side fallback：若模型的安全機制拒答，伺服器自動改用其他模型重試。
-- 管理後台「系統診斷」會顯示 AI 模式、今日使用次數與最近錯誤。
+回覆來源依序嘗試，前一個失敗、逾時、超過次數或內容不適當時自動換下一個：
+
+1. **免費開源模型（選用）**：設定 `TWSTOCK_LLM_PROVIDER` 後，透過 OpenAI 相容 API 呼叫：
+
+   | 服務 | `TWSTOCK_LLM_PROVIDER` | 需要的設定 | 預設模型（以官網清單為準） |
+   | --- | --- | --- | --- |
+   | [Groq](https://console.groq.com)（推薦，免綁卡、速度快） | `groq` | `TWSTOCK_LLM_API_KEY` | `llama-3.3-70b-versatile` |
+   | [OpenRouter](https://openrouter.ai) | `openrouter` | `TWSTOCK_LLM_API_KEY`、`TWSTOCK_LLM_MODEL`（選名稱結尾為 `:free` 的模型） | 需自行指定 |
+   | [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/) | `cloudflare` | `TWSTOCK_LLM_API_KEY`、`TWSTOCK_LLM_ACCOUNT_ID` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` |
+   | 自架 [Ollama](https://ollama.com)（例如 Oracle Cloud 免費主機） | `ollama` | `TWSTOCK_LLM_BASE_URL`（例 `http://你的主機:11434/v1`） | `qwen2.5:3b` |
+   | 其他 OpenAI 相容服務 | `custom` | `TWSTOCK_LLM_BASE_URL`、`TWSTOCK_LLM_MODEL`、金鑰 | — |
+
+   小模型常混用簡體字，回覆會自動以 OpenCC 轉成台灣繁體與用語；含髒話或貶抑字眼的回覆會被擋下改用句庫。Render 免費主機的記憶體跑不動模型本身，所以模型需放在上述服務或另一台主機。
+2. **Claude（選用）**：設定 `ANTHROPIC_API_KEY`，預設 `claude-opus-5-5`、思考深度 `low`，並開啟 server-side fallback（被安全機制拒答時伺服器自動改用其他模型）。
+3. **內建句庫（預設、免費）**：先判斷問題意圖（打招呼、道謝、套牢、要不要賣、能不能買、會不會漲、討明牌、大盤），再挑對應的毒舌回覆，提到股票時附上真實報價與技術訊號；「想買」時依當天漲跌改嗆「接刀」或「追高」。
+
+問題提到的股票（代號或常見名稱，如「台積電」「發哥」）會先查報價交給模型，模型只能引用這些數字；「1100 元」「23000 點」這類價格數字不會被誤認為代號。每個聊天室每小時最多 20 次、全站每天最多 300 次模型回覆（`TWSTOCK_AI_CHAT_LIMIT`、`TWSTOCK_AI_DAILY_LIMIT`），超過時改用句庫。管理後台「系統診斷」會顯示目前的回覆來源、今日次數與最近錯誤。
 
 ### 免費主機必做：外部排程（每日精選 / 警示推播才會準時）
 
@@ -156,6 +169,8 @@ docker run -d --restart=always -p 8000:8000 -v twstock-data:/data -e TWSTOCK_PAS
 | `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` | | LINE 機器人（Messaging API） |
 | `LINE_TO` | | LINE 推播對象（userId / groupId，逗號分隔） |
 | `LINE_BROADCAST` | `0` | `1` = 推播給所有好友 |
+| `TWSTOCK_LLM_PROVIDER` | | 選填：LINE 對話使用免費開源模型（groq / openrouter / cloudflare / ollama / custom） |
+| `TWSTOCK_LLM_API_KEY` / `TWSTOCK_LLM_MODEL` / `TWSTOCK_LLM_BASE_URL` / `TWSTOCK_LLM_ACCOUNT_ID` | | 開源模型的金鑰、模型名稱、API 位址、Cloudflare 帳號 ID |
 | `ANTHROPIC_API_KEY` | | 選填：LINE 對話使用 Claude 回答 |
 | `TWSTOCK_AI_MODEL` | `claude-opus-5-5` | 對話模型 |
 | `TWSTOCK_AI_EFFORT` | `low` | 思考深度（low / medium / high） |
@@ -207,7 +222,7 @@ twstock/
   portfolio.py    持股損益分析與建議
   notifier.py     背景警示檢查與推播（Telegram / LINE）
   line_bot.py     LINE 機器人：推播、webhook、指令與 tag 判斷
-  chatbot.py      LINE 對話回覆（Claude 或內建句庫，毒舌風格）
+  chatbot.py      LINE 對話回覆（開源模型 / Claude / 意圖句庫，毒舌風格）
   picks.py        每日精選（綜合選股法計分）
   models.py       選股模型與因子（Minervini、動能、葛拉漢、財務體質、Altman Z、大盤濾網…）
   fundamentals.py 月營收、估值、財報、融資融券（證交所 OpenAPI）

@@ -4,3 +4,4 @@ pandas>=2.0
 numpy>=1.26
 requests>=2.31
 anthropic>=2.0,<3
+opencc-python-reimplemented>=0.1.7

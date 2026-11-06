@@ -30,3 +30,9 @@ services:
         sync: false   # 選填：警示設定（網站「複製警示設定」產生），免費主機重啟後自動還原
       - key: ANTHROPIC_API_KEY
         sync: false   # 選填：LINE 機器人被 tag / 私訊時用 Claude 回答（未設定則用內建句庫回覆）
+      - key: TWSTOCK_LLM_PROVIDER
+        sync: false   # 選填：免費開源模型 groq / openrouter / cloudflare / ollama（LINE 對話用）
+      - key: TWSTOCK_LLM_API_KEY
+        sync: false
+      - key: TWSTOCK_LLM_MODEL
+        sync: false   # 選填：不填則用該服務的預設模型
