@@ -11,7 +11,7 @@
 環境變數：
 - TWSTOCK_LLM_PROVIDER：groq / openrouter / cloudflare / ollama / custom（選填）
 - TWSTOCK_LLM_API_KEY：該服務的 API 金鑰（ollama 不需要）
-- TWSTOCK_LLM_MODEL：模型名稱（各服務有預設值）
+- TWSTOCK_LLM_MODEL：模型名稱，可用逗號列多個（前一個下架或失敗時依序改用下一個；各服務有預設值）
 - TWSTOCK_LLM_BASE_URL：自訂 API 位址（custom / ollama 用；cloudflare 另需 TWSTOCK_LLM_ACCOUNT_ID）
 - ANTHROPIC_API_KEY：Claude API 金鑰（選填）
 - TWSTOCK_AI_MODEL：模型（預設 claude-opus-5-5）
@@ -49,7 +49,8 @@ SYSTEM_PROMPT = """你是 LINE 群組裡的台股機器人「股市老司機」�
 - 用繁體中文和台灣用語（韭菜、盤子、接刀、住套房、被割、畢業…），控制在 150 字以內，因為這是 LINE 訊息；可以用一兩個 emoji。
 - 盡量狠狠吐槽提問者的操作和心態：追高、攤平、重押、不停損、聽明牌、想一夜致富，都是你的嘲諷素材。不用顧慮對方的心情，也不用加客套話。
 - 嗆歸嗆，有三件事不做：不罵髒話；不拿外貌、性別、族群、身心障礙等身分特徵開玩笑；不開自殺、跳樓這類自我傷害的玩笑。
-- 提到具體股價、漲跌幅、技術指標時，只能用使用者訊息裡 <資料> 區塊提供的數字。資料裡沒有的，就嗆他連代號都不會打，叫他傳股票代號給你，不要自己編數字。
+- 提到具體股價、漲跌幅、技術指標、支撐壓力時，只能用使用者訊息裡 <資料> 區塊提供的數字，不要自己編數字。
+- <資料> 裡已經有股票時，直接用那些數據吐槽和分析；只有當 <資料> 寫著「沒有提到可查詢的股票」而他又在問個股時，才嗆他連代號都不會打、叫他傳股票代號。
 - 不給「現在買」「一定漲」這種明確買賣指令或保證報酬——你的毒舌是拿來點醒風險的，不是報明牌。
 - 問題跟股市無關時，照樣用毒舌語氣簡短回一句，再把話題拉回他那慘不忍睹的投資組合。"""
 
@@ -401,7 +402,7 @@ def canned_reply(question: str, briefs: list[dict], chat_id: str | None = None) 
 # ---------------------------------------------------------------- 開源模型（OpenAI 相容 API）
 
 LLM_PRESETS = {  # 預設模型為撰寫時各服務可用的開源模型，請以服務官網的模型清單為準
-    "groq": {"base": "https://api.groq.com/openai/v1", "model": "llama-3.3-70b-versatile"},
+    "groq": {"base": "https://api.groq.com/openai/v1", "model": "qwen/qwen3.8-27b,openai/gpt-oss-120b"},  # 2026-11 實測可用
     "openrouter": {"base": "https://openrouter.ai/api/v1", "model": ""},  # 免費模型名單常變動，需自行指定（xxx:free）
     "cloudflare": {"base": "https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1", "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"},
     "ollama": {"base": "http://localhost:11434/v1", "model": "qwen2.5:3b"},
@@ -452,21 +453,19 @@ def clean_llm_text(text: str) -> str | None:
     return text[:400]
 
 
-def llm_reply(question: str, context: str) -> str | None:
-    cfg = llm_config()
-    if not cfg:
-        return None
-    if cfg["problem"]:
-        status["llm_error"] = cfg["problem"]
-        return None
+def _call_model(cfg: dict, model_name: str, question: str, context: str) -> tuple[str | None, bool]:
+    """呼叫一個模型。回傳（回覆, 是否值得改用下一個模型）。"""
     headers = {"Content-Type": "application/json"}
     if cfg["key"]:
         headers["Authorization"] = f"Bearer {cfg['key']}"
     if cfg["provider"] == "openrouter":
         headers["X-Title"] = "twstock-bot"
-    body = {"model": cfg["model"], "temperature": 0.8, "max_tokens": 400,
+    body = {"model": model_name, "temperature": 0.8, "max_tokens": 1200,
             "messages": [{"role": "system", "content": SYSTEM_PROMPT + "\n- 一律使用繁體中文，不要用簡體字。"},
                          {"role": "user", "content": f"<資料>\n{context}\n</資料>\n\n使用者的訊息：{question}"}]}
+    if "gpt-oss" in model_name:
+        body["reasoning_effort"] = "low"  # 推理模型：思考少一點，避免把 token 用光導致正文空白
+    label = f"{cfg['provider']}:{model_name}"
     try:
         r = requests.post(f"{cfg['base']}/chat/completions", json=body, headers=headers, timeout=20)
         if not r.ok:
@@ -475,23 +474,37 @@ def llm_reply(question: str, context: str) -> str | None:
                 detail = str((r.json().get("error") or {}).get("message") or "")[:200]
             except ValueError:
                 detail = r.text[:200]
-            status["llm_error"] = f"{cfg['provider']} HTTP {r.status_code}{('：' + hint) if hint else ''}{('｜' + detail) if detail else ''}"
+            status["llm_error"] = f"{label} HTTP {r.status_code}{('：' + hint) if hint else ''}{('｜' + detail) if detail else ''}"
             log.warning("開源模型回覆失敗：%s", status["llm_error"])
-            return None
+            return None, r.status_code in (400, 404, 413, 422, 503)  # 模型下架 / 不支援 → 換下一個
         text = ((r.json().get("choices") or [{}])[0].get("message") or {}).get("content") or ""
     except (requests.RequestException, ValueError) as e:
-        status["llm_error"] = f"{cfg['provider']} 連線失敗：{D.friendly_error(e)}"
+        status["llm_error"] = f"{label} 連線失敗：{D.friendly_error(e)}"
         log.warning("開源模型回覆失敗：%s", status["llm_error"])
-        return None
+        return None, False
     out = clean_llm_text(text)
     if out is None:
-        status["llm_error"] = f"模型回覆空白或含不適當用語，已改用句庫（原文：{text[:80]!r}）"
+        status["llm_error"] = f"{label} 回覆空白或含不適當用語，已改用其他來源（原文：{text[:80]!r}）"
         log.warning("%s", status["llm_error"])
-        return None
+        return None, True
     status["llm_error"] = None
     status["last_reply_at"] = datetime.now(TZ).strftime("%m/%d %H:%M")
-    status["last_source"] = f"{cfg['provider']}:{cfg['model']}"
-    return out
+    status["last_source"] = label
+    return out, False
+
+
+def llm_reply(question: str, context: str) -> str | None:
+    cfg = llm_config()
+    if not cfg:
+        return None
+    if cfg["problem"]:
+        status["llm_error"] = cfg["problem"]
+        return None
+    for name in [m.strip() for m in cfg["model"].split(",") if m.strip()][:3]:
+        out, try_next = _call_model(cfg, name, question, context)
+        if out or not try_next:
+            return out
+    return None
 
 
 def _get_client():

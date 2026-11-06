@@ -70,13 +70,13 @@ TWSTOCK_SOURCE=demo uvicorn twstock.main:app
 
    | 服務 | `TWSTOCK_LLM_PROVIDER` | 需要的設定 | 預設模型（以官網清單為準） |
    | --- | --- | --- | --- |
-   | [Groq](https://console.groq.com)（推薦，免綁卡、速度快） | `groq` | `TWSTOCK_LLM_API_KEY` | `llama-3.3-70b-versatile` |
+   | [Groq](https://console.groq.com)（推薦，免綁卡、速度快） | `groq` | `TWSTOCK_LLM_API_KEY` | `qwen/qwen3.8-27b`，失敗時改用 `openai/gpt-oss-120b`（2026-11 實測，回覆約 1 秒） |
    | [OpenRouter](https://openrouter.ai) | `openrouter` | `TWSTOCK_LLM_API_KEY`、`TWSTOCK_LLM_MODEL`（選名稱結尾為 `:free` 的模型） | 需自行指定 |
    | [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/) | `cloudflare` | `TWSTOCK_LLM_API_KEY`、`TWSTOCK_LLM_ACCOUNT_ID` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` |
    | 自架 [Ollama](https://ollama.com)（例如 Oracle Cloud 免費主機） | `ollama` | `TWSTOCK_LLM_BASE_URL`（例 `http://你的主機:11434/v1`） | `qwen2.5:3b` |
    | 其他 OpenAI 相容服務 | `custom` | `TWSTOCK_LLM_BASE_URL`、`TWSTOCK_LLM_MODEL`、金鑰 | — |
 
-   小模型常混用簡體字，回覆會自動以 OpenCC 轉成台灣繁體與用語；含髒話或貶抑字眼的回覆會被擋下改用句庫。Render 免費主機的記憶體跑不動模型本身，所以模型需放在上述服務或另一台主機。
+   `TWSTOCK_LLM_MODEL` 可用逗號列多個模型，前一個下架或失敗時依序改用下一個；系統診斷會顯示服務回傳的錯誤原因（例如模型已下架）。小模型常混用簡體字，回覆會自動以 OpenCC 轉成台灣繁體與用語；含髒話或貶抑字眼的回覆會被擋下改用句庫。Render 免費主機的記憶體跑不動模型本身，所以模型需放在上述服務或另一台主機。
 2. **Claude（選用）**：設定 `ANTHROPIC_API_KEY`，預設 `claude-opus-5-5`、思考深度 `low`，並開啟 server-side fallback（被安全機制拒答時伺服器自動改用其他模型）。
 3. **內建句庫（預設、免費）**：先判斷問題意圖（打招呼、道謝、套牢、要不要賣、能不能買、會不會漲、討明牌、大盤），再挑對應的毒舌回覆，提到股票時附上真實報價與技術訊號；「想買」時依當天漲跌改嗆「接刀」或「追高」。
 

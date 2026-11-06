@@ -161,9 +161,9 @@ def test_groq_request_and_traditional_conversion(monkeypatch):
     assert out == "這隻股票的軟體概念太熱門，追高要設定止損。"  # 去掉思考、簡轉繁（台灣用語）
     url, kw = calls[0]
     assert url == "https://api.groq.com/openai/v1/chat/completions"
-    assert kw["headers"]["Authorization"] == "Bearer gsk_test" and kw["json"]["model"] == "llama-3.3-70b-versatile"
+    assert kw["headers"]["Authorization"] == "Bearer gsk_test" and kw["json"]["model"] == "qwen/qwen3.8-27b"
     assert "台積電（2330）" in kw["json"]["messages"][1]["content"] and "繁體中文" in kw["json"]["messages"][0]["content"]
-    assert chatbot.status["last_source"] == "groq:llama-3.3-70b-versatile"
+    assert chatbot.status["last_source"] == "groq:qwen/qwen3.8-27b"
 
 
 def test_llm_failures_fall_back(monkeypatch):
@@ -214,7 +214,8 @@ def test_analyze_target_fundamental_blocks():
     f = chatbot.canned_reply("南亞本益比", [{**b, "fund": {"pe": 12.3, "dividend_yield": 4.5, "industry": "塑膠工業"}}], "G")
     assert "本益比 12.3 倍" in f and "塑膠工業" in f
     assert "📊" in chatbot.canned_reply("南亞", [b], "G")  # 只給名稱 → 分析
-    assert "通靈" in chatbot.canned_reply("分析一下", [], "G") or "名稱呢" in chatbot.canned_reply("分析一下", [], "G")
+    ask = chatbot.canned_reply("分析一下", [], "G")
+    assert "通靈" in ask or "名稱呢" in ask
 
 
 def test_no_immediate_repeats():
@@ -232,3 +233,25 @@ def test_llm_error_detail(monkeypatch):
     monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: Bad(400))
     chatbot.reply("隨便聊聊", "C9")
     assert "decommissioned" in chatbot.status["llm_error"]
+
+
+
+def test_model_fallback_chain(monkeypatch):
+    monkeypatch.setenv("TWSTOCK_LLM_PROVIDER", "groq")
+    monkeypatch.setenv("TWSTOCK_LLM_API_KEY", "gsk_test")
+    tried = []
+
+    def post(url, **kw):
+        tried.append(kw["json"]["model"])
+        return FakeResp(404) if kw["json"]["model"] == "qwen/qwen3.8-27b" else FakeResp(content="備用模型回覆")
+    monkeypatch.setattr(chatbot.requests, "post", post)
+    assert chatbot.reply("隨便聊聊", "C1") == "備用模型回覆"
+    assert tried == ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"] and chatbot.status["last_source"] == "groq:openai/gpt-oss-120b"
+    tried.clear()  # 429（額度用完）不換模型，直接用句庫
+    monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: tried.append(1) or FakeResp(429))
+    assert chatbot.reply("隨便聊聊", "C2") in chatbot.GENERIC and tried == [1]
+    bodies = []  # gpt-oss 帶 reasoning_effort
+    monkeypatch.setenv("TWSTOCK_LLM_MODEL", "openai/gpt-oss-20b")
+    monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: bodies.append(kw["json"]) or FakeResp())
+    chatbot.reply("隨便聊聊", "C3")
+    assert bodies[0]["reasoning_effort"] == "low" and bodies[0]["max_tokens"] >= 1000
