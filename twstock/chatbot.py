@@ -71,6 +71,13 @@ INTENTS = [  # （意圖, 關鍵字, 回覆）依序比對，第一個命中的�
       "賣了怕漲、不賣怕跌，你這不叫投資，叫焦慮症。",
       "會問要不要跑，代表你早就該跑了，只是捨不得承認自己看錯。🏃",
       "停損點設在哪？「再等等看」嗎？這是韭菜最常見的停損點。"]),
+    ("target", ("目標價", "目標", "會到", "漲到", "跌到", "支撐", "壓力", "價位", "合理價", "多少錢", "撐得住"),
+     ["目標價？券商分析師都猜不準了，你還指望一個機器人？給你技術面價位，自己拿去設停損停利：",
+      "想要目標價，是想找個理由凹單吧？先看清楚上下的價位：",
+      "目標價這種東西，是讓你套牢時有個盼頭用的。技術面價位給你，別再問我會不會到：🎯"]),
+    ("fundamental", ("本益比", "殖利率", "eps", "營收", "財報", "基本面", "配息", "股利", "淨值"),
+     ["看基本面？難得，我還以為你只會看線圖跟聽明牌。",
+      "會問基本面，至少比只會問「會不會漲」的人多進化一點點。"]),
     ("buy", ("買", "進場", "追", "上車", "加碼", "抄底", "接"),
      ["要買先想好錯了怎麼下車——算了，你從來不想這個。"]),
     ("rise", ("會漲", "會不會漲", "漲嗎", "會跌", "跌嗎", "噴", "明天", "走勢"),
@@ -83,6 +90,9 @@ INTENTS = [  # （意圖, 關鍵字, 回覆）依序比對，第一個命中的�
     ("market", ("大盤", "台股", "指數", "加權", "崩盤", "股災"),
      ["大盤漲你不賺、大盤跌你賠更多，問題不在大盤，在你。",
       "還在看大盤？你連自己手上那檔都顧不好。"]),
+    ("analyze", ("分析", "怎麼看", "看法", "技術面", "健檢", "如何", "怎樣", "怎麼樣", "評價", "解讀", "診斷"),
+     ["要我分析？行，免費幫你健檢，看完別哭：", "分析給你看，但我猜你看完還是會憑感覺下單：",
+      "好啦，幫你把這檔扒光看清楚：🔍"]),
 ]
 
 BUY_DIP = ["跌成這樣就想進場？抄底抄在半山腰，是你的傳統藝能。",
@@ -194,7 +204,26 @@ def stock_brief(code: str) -> dict | None:
         "ret_1m": (s["returns"].get("1M") or 0) * 100 if s["returns"].get("1M") is not None else None,
         "high_52w": s["high_52w"], "low_52w": s["low_52w"], "signals": [g["text"] for g in s["signals"][:4]],
         "demo": p.source == "demo",
+        "ma5": i.get("ma5"), "atr": i.get("atr"), "hist": i.get("hist"),
+        "hi20": float(df["high"].iloc[-20:].max()), "lo20": float(df["low"].iloc[-20:].min()),
+        "ret_3m": (s["returns"].get("3M") or 0) * 100 if s["returns"].get("3M") is not None else None,
+        "bull": [g["text"] for g in s["signals"] if g["type"] == "bull"],
+        "bear": [g["text"] for g in s["signals"] if g["type"] == "bear"],
+        "fund": _cached_fundamentals(p.code),
     }
+
+
+def _cached_fundamentals(code: str) -> dict | None:
+    """只讀已載入記憶體的基本面（每天第一次選股時才會抓），不在回覆時下載。"""
+    try:
+        from . import fundamentals as F
+        df = next(iter(F._mem.values()), None)
+        if df is None or code not in df.index:
+            return None
+        row = df.loc[code]
+        return {k: (None if (not isinstance(v, str) and v != v) else v) for k, v in row.items()}
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _fmt(v, d=1):
@@ -209,6 +238,15 @@ def context_text(briefs: list[dict], question: str) -> str:
             f"MA20 {_fmt(b['ma20'], 2)}、MA60 {_fmt(b['ma60'], 2)}，RSI {_fmt(b['rsi'])}，K/D {_fmt(b['k'], 0)}/{_fmt(b['d'], 0)}，"
             f"52 週高低 {_fmt(b['high_52w'], 2)}/{_fmt(b['low_52w'], 2)}，多空分數 {b['score']}/100。"
             f"訊號：{'；'.join(b['signals'])}" + ("（示範資料，非真實行情）" if b["demo"] else ""))
+        lv = levels(b)
+        lines.append(f"  趨勢：{_trend(b)}；上方壓力 {'、'.join(f'{v:,.2f}（{n}）' for v, n in lv['above']) or '無'}；"
+                     f"下方支撐 {'、'.join(f'{v:,.2f}（{n}）' for v, n in lv['below']) or '無'}"
+                     + (f"；近期正常波動 {lv['band'][0]:,.2f}～{lv['band'][1]:,.2f}" if lv["band"] else ""))
+        f = b.get("fund") or {}
+        fund_txt = "，".join(f"{n} {f[k]:.2f}" for k, n in (("pe", "本益比"), ("dividend_yield", "殖利率%"), ("rev_yoy", "月營收年增%"), ("eps", "EPS"))
+                            if isinstance(f.get(k), (int, float)))
+        if fund_txt:
+            lines.append("  基本面：" + fund_txt)
     if any(k in question for k in ("推薦", "精選", "買什麼", "選股", "哪檔", "哪支", "哪隻")):
         from . import picks
         cached = next(iter(picks._cache.values()), None)  # 只用已算好的精選，不在回覆時重算
@@ -229,10 +267,112 @@ def intent(question: str) -> str | None:
     return None
 
 
-def canned_reply(question: str, briefs: list[dict]) -> str:
-    """不用模型的嘲諷回覆：依問題意圖挑句子，提到股票時附真實報價。"""
+_recent: dict[str, deque] = defaultdict(lambda: deque(maxlen=8))
+
+
+def _pick(pool: list[str], chat_id: str | None) -> str:
+    """從句庫挑一句，避開這個聊天室最近用過的。"""
+    used = _recent[chat_id or "_"]
+    fresh = [x for x in pool if x not in used] or pool
+    choice = random.choice(fresh)
+    used.append(choice)
+    return choice
+
+
+def _trend(b: dict) -> str:
+    p, m5, m20, m60 = b["price"], b.get("ma5"), b.get("ma20"), b.get("ma60")
+    if None in (m20, m60):
+        return "資料不足"
+    parts = [f"{'站上' if p >= m20 else '跌破'}月線（{m20:,.2f}）", f"{'站上' if p >= m60 else '跌破'}季線（{m60:,.2f}）"]
+    if m5 is not None and m5 > m20 > m60:
+        parts.append("均線多頭排列")
+    elif m5 is not None and m5 < m20 < m60:
+        parts.append("均線空頭排列")
+    return "、".join(parts)
+
+
+def _verdict(b: dict, chat_id: str | None) -> str:
+    pool = CHEERS if b["score"] >= 70 else GLOOMS if b["score"] <= 30 else MEH
+    return _pick(pool, chat_id).format(score=b["score"])
+
+
+def _move_quip(b: dict, chat_id: str | None) -> str:
+    chg, rsi, out = b["change_pct"], b.get("rsi"), ""
+    if chg <= -3:
+        out += " " + _pick([f"今天直接跌 {abs(chg):.1f}%，想抄底的先確認地板在哪，別又抄到地下室。",
+                            f"單日 -{abs(chg):.1f}%，這不是回檔，這是自由落體。🪂",
+                            f"一天蒸發 {abs(chg):.1f}%，抱著的人今晚可以不用睡了。"], chat_id)
+    elif chg >= 3:
+        out += " " + _pick([f"今天噴 {chg:.1f}%，現在才想上車？車門夾到手別哭。",
+                            f"單日 +{chg:.1f}%，漲完才看到，你的反應速度跟烏龜有得拚。🐢"], chat_id)
+    if rsi is not None and rsi >= 75:
+        out += f" RSI {rsi:.0f}，都燒成這樣了你還想衝？🔥"
+    elif rsi is not None and rsi <= 25:
+        out += f" RSI {rsi:.0f}，跌到連空軍都不好意思再空，你還抱著？"
+    return out
+
+
+def _head(b: dict) -> str:
+    return f"{b['name']}（{b['code']}）{b['date']} 收 {b['price']:,.2f}（{b['change_pct']:+.2f}%）"
+
+
+def analyze_block(b: dict, chat_id: str | None = None) -> str:
+    hi = b.get("high_52w")
+    lines = [
+        "📊 " + _head(b),
+        "趨勢：" + _trend(b),
+        f"指標：RSI {_fmt(b.get('rsi'), 0)}｜K/D {_fmt(b.get('k'), 0)}/{_fmt(b.get('d'), 0)}｜近一月 {_fmt(b.get('ret_1m'))}%｜近三月 {_fmt(b.get('ret_3m'))}%"
+        + (f"｜距一年高點 {(b['price'] / hi - 1) * 100:+.1f}%" if hi else ""),
+    ]
+    if b.get("bull"):
+        lines.append("偏多：" + "、".join(b["bull"][:3]))
+    if b.get("bear"):
+        lines.append("偏空：" + "、".join(b["bear"][:3]))
+    lines.append("結論：" + _verdict(b, chat_id) + _move_quip(b, chat_id))
+    return "\n".join(lines)
+
+
+def levels(b: dict) -> dict:
+    """技術面價位：上方壓力、下方支撐、近期波動區間（±2 倍 ATR）。"""
+    p = b["price"]
+    cands = [("近 20 日高點", b.get("hi20")), ("近 20 日低點", b.get("lo20")), ("月線", b.get("ma20")),
+             ("季線", b.get("ma60")), ("一年高點", b.get("high_52w")), ("一年低點", b.get("low_52w"))]
+    cands = [(n, v) for n, v in cands if v]
+    above = sorted([(v, n) for n, v in cands if v > p * 1.002])[:2]
+    below = sorted([(v, n) for n, v in cands if v < p * 0.998], reverse=True)[:2]
+    atr = b.get("atr")
+    band = (p - 2 * atr, p + 2 * atr) if atr else None
+    return {"above": above, "below": below, "band": band}
+
+
+def target_block(b: dict) -> str:
+    lv = levels(b)
+    fmt = lambda xs: "、".join(f"{v:,.2f}（{n}）" for v, n in xs) or "沒有，已經在一年新高附近，上面只有天空跟你的妄想"  # noqa: E731
+    fmt_b = lambda xs: "、".join(f"{v:,.2f}（{n}）" for v, n in xs) or "沒有，已經跌破一年低點，下面是無底洞"  # noqa: E731
+    lines = ["🎯 " + _head(b), "上方壓力：" + fmt(lv["above"]), "下方支撐：" + fmt_b(lv["below"])]
+    if lv["band"]:
+        lines.append(f"近期正常波動：{lv['band'][0]:,.2f}～{lv['band'][1]:,.2f}（±2 倍 ATR，超出才算真的出事）")
+    return "\n".join(lines)
+
+
+def fundamental_block(b: dict) -> str:
+    f = b.get("fund")
+    if not f:
+        return "📑 " + _head(b) + "\n基本面資料今天還沒載入（每天第一次算精選後才有），先傳「精選」或晚點再問。"
+    items = [("本益比", f.get("pe"), "{:.1f} 倍"), ("殖利率", f.get("dividend_yield"), "{:.2f}%"), ("淨值比", f.get("pb"), "{:.2f}"),
+             ("月營收年增", f.get("rev_yoy"), "{:+.1f}%"), ("EPS", f.get("eps"), "{:.2f} 元"), ("ROE", f.get("roe"), "{:.1f}%"),
+             ("財務體質", f.get("quality_score"), "{:.0f}/6")]
+    shown = "｜".join(f"{n} {fmt.format(v)}" for n, v, fmt in items if v is not None)
+    extra = f"（財報 {f['fs_period']}）" if f.get("fs_period") else ""
+    return "📑 " + _head(b) + (f"［{f['industry']}］" if f.get("industry") else "") + "\n" + (shown or "查無基本面數據") + extra
+
+
+def canned_reply(question: str, briefs: list[dict], chat_id: str | None = None) -> str:
+    """不用模型的嘲諷回覆：依問題意圖挑句子與資料呈現方式，提到股票時附真實數據。"""
     it = intent(question)
-    lead = random.choice(next(r for n, _, r in INTENTS if n == it)) if it else None
+    if it is None and briefs:
+        it = "analyze"  # 只丟股票名稱 → 直接給分析
+    lead = _pick(next(r for n, _, r in INTENTS if n == it), chat_id) if it else None
     if it == "recommend":
         from . import picks
         cached = next(iter(picks._cache.values()), None)
@@ -240,25 +380,22 @@ def canned_reply(question: str, briefs: list[dict]) -> str:
             names = "、".join(f"{p['code']} {p['name']}" for p in cached["picks"][:3])
             lead = f"又在討明牌。今天算出來的是 {names}，詳細傳「精選」。照抄還能賠，那就是你的問題了。😏"
     if not briefs:
-        return lead or random.choice(GENERIC)
+        if it in ("analyze", "target", "fundamental"):
+            return _pick(["要分析哪檔？代號或名稱都不給，是要我通靈嗎？", "股票名稱呢？你下單也這麼隨便嗎？🙄"], chat_id)
+        return lead or _pick(GENERIC, chat_id)
     if it == "buy":  # 想買的時候，依當天漲跌換說法：跌是接刀、漲是追高
-        lead = random.choice(BUY_DIP if briefs[0]["change_pct"] < 0 else BUY_CHASE)
+        lead = _pick(BUY_DIP if briefs[0]["change_pct"] < 0 else BUY_CHASE, chat_id)
     parts = [lead] if lead and it not in ("greet", "thanks") else []
-    for b in briefs:
-        pool = CHEERS if b["score"] >= 70 else GLOOMS if b["score"] <= 30 else MEH
-        line = f"{b['name']} {b['price']:,.2f}（{b['change_pct']:+.2f}%），" + random.choice(pool).format(score=b["score"])
-        chg = b["change_pct"]
-        if chg <= -3:
-            line += random.choice([f" 今天直接跌 {abs(chg):.1f}%，想抄底的先確認地板在哪，別又抄到地下室。", f" 單日 -{abs(chg):.1f}%，這不是回檔，這是自由落體。🪂"])
-        elif chg >= 3:
-            line += random.choice([f" 今天噴 {chg:.1f}%，現在才想上車？車門夾到手別哭。", f" 單日 +{chg:.1f}%，漲完才看到，你的反應速度跟烏龜有得拚。🐢"])
-        rsi = b.get("rsi")
-        if rsi is not None and rsi >= 75:
-            line += f" RSI {rsi:.0f}，都燒成這樣了你還想衝？🔥"
-        elif rsi is not None and rsi <= 25:
-            line += f" RSI {rsi:.0f}，跌到連空軍都不好意思再空，你還抱著？"
-        parts.append(line)
-    return "\n".join(parts) + "\n" + FOOTER
+    for b in briefs[:2] if it in ("analyze", "target", "fundamental") else briefs:
+        if it == "analyze":
+            parts.append(analyze_block(b, chat_id))
+        elif it == "target":
+            parts.append(target_block(b))
+        elif it == "fundamental":
+            parts.append(fundamental_block(b))
+        else:
+            parts.append(f"{b['name']} {b['price']:,.2f}（{b['change_pct']:+.2f}%），" + _verdict(b, chat_id) + _move_quip(b, chat_id))
+    return "\n\n".join(parts) + "\n" + FOOTER
 
 
 # ---------------------------------------------------------------- 開源模型（OpenAI 相容 API）
@@ -334,15 +471,22 @@ def llm_reply(question: str, context: str) -> str | None:
         r = requests.post(f"{cfg['base']}/chat/completions", json=body, headers=headers, timeout=20)
         if not r.ok:
             hint = {401: "金鑰無效", 402: "額度不足", 404: "模型名稱或 API 位址錯誤", 429: "超過免費額度或請求太頻繁"}.get(r.status_code, "")
-            status["llm_error"] = f"{cfg['provider']} HTTP {r.status_code}{('：' + hint) if hint else ''}"
+            try:
+                detail = str((r.json().get("error") or {}).get("message") or "")[:200]
+            except ValueError:
+                detail = r.text[:200]
+            status["llm_error"] = f"{cfg['provider']} HTTP {r.status_code}{('：' + hint) if hint else ''}{('｜' + detail) if detail else ''}"
+            log.warning("開源模型回覆失敗：%s", status["llm_error"])
             return None
         text = ((r.json().get("choices") or [{}])[0].get("message") or {}).get("content") or ""
     except (requests.RequestException, ValueError) as e:
         status["llm_error"] = f"{cfg['provider']} 連線失敗：{D.friendly_error(e)}"
+        log.warning("開源模型回覆失敗：%s", status["llm_error"])
         return None
     out = clean_llm_text(text)
     if out is None:
-        status["llm_error"] = "模型回覆空白或含不適當用語，已改用句庫"
+        status["llm_error"] = f"模型回覆空白或含不適當用語，已改用句庫（原文：{text[:80]!r}）"
+        log.warning("%s", status["llm_error"])
         return None
     status["llm_error"] = None
     status["last_reply_at"] = datetime.now(TZ).strftime("%m/%d %H:%M")
@@ -416,4 +560,4 @@ def reply(question: str, chat_id: str) -> str:
             status["last_error"] = "已達 AI 回覆次數上限，暫時改用句庫"
     status["fallback_used"] += 1
     status["last_source"] = "句庫"
-    return canned_reply(question, briefs)
+    return canned_reply(question, briefs, chat_id)

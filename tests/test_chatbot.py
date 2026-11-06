@@ -198,3 +198,37 @@ def test_provider_config_problems(monkeypatch):
     chatbot.reply("隨便聊聊", "C1")
     assert "Authorization" not in called[0]
     assert chatbot.usage()["llm"]["provider"] == "ollama" and "key" not in chatbot.usage()["llm"]
+
+
+
+def test_analyze_target_fundamental_blocks():
+    b = {"code": "1303", "name": "南亞", "date": "2026-11-06", "price": 239.5, "change_pct": -3.82, "score": 40,
+         "rsi": 38.0, "k": 16.0, "d": 23.0, "ma5": 245.0, "ma20": 299.3, "ma60": 251.5, "atr": 22.0,
+         "hi20": 330.0, "lo20": 224.5, "high_52w": 350.0, "low_52w": 43.5, "ret_1m": -18.3, "ret_3m": 35.3,
+         "bull": ["K 值低檔"], "bear": ["跌破月線"], "signals": [], "fund": None}
+    a = chatbot.canned_reply("分析南亞", [b], "G")
+    assert "趨勢：跌破月線（299.30）、跌破季線（251.50）" in a and "RSI 38" in a and "偏空：跌破月線" in a
+    t = chatbot.canned_reply("南亞目標價", [b], "G")
+    assert "上方壓力：251.50（季線）、299.30（月線）" in t and "下方支撐：224.50（近 20 日低點）" in t and "195.50～283.50" in t
+    assert "還沒載入" in chatbot.canned_reply("南亞本益比", [b], "G")
+    f = chatbot.canned_reply("南亞本益比", [{**b, "fund": {"pe": 12.3, "dividend_yield": 4.5, "industry": "塑膠工業"}}], "G")
+    assert "本益比 12.3 倍" in f and "塑膠工業" in f
+    assert "📊" in chatbot.canned_reply("南亞", [b], "G")  # 只給名稱 → 分析
+    assert "通靈" in chatbot.canned_reply("分析一下", [], "G") or "名稱呢" in chatbot.canned_reply("分析一下", [], "G")
+
+
+def test_no_immediate_repeats():
+    seen = [chatbot._pick(["a", "b", "c"], "room") for _ in range(3)]
+    assert sorted(seen) == ["a", "b", "c"]  # 三句輪流用完才會重複
+
+
+def test_llm_error_detail(monkeypatch):
+    monkeypatch.setenv("TWSTOCK_LLM_PROVIDER", "groq")
+    monkeypatch.setenv("TWSTOCK_LLM_API_KEY", "gsk_test")
+
+    class Bad(FakeResp):
+        def json(self):
+            return {"error": {"message": "The model `x` has been decommissioned"}}
+    monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: Bad(400))
+    chatbot.reply("隨便聊聊", "C9")
+    assert "decommissioned" in chatbot.status["llm_error"]
