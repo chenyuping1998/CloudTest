@@ -76,6 +76,8 @@ TWSTOCK_SOURCE=demo uvicorn twstock.main:app
    | 自架 [Ollama](https://ollama.com)（例如 Oracle Cloud 免費主機） | `ollama` | `TWSTOCK_LLM_BASE_URL`（例 `http://你的主機:11434/v1`） | `qwen2.5:3b` |
    | 其他 OpenAI 相容服務 | `custom` | `TWSTOCK_LLM_BASE_URL`、`TWSTOCK_LLM_MODEL`、金鑰 | — |
 
+   **上網查資料**：使用 Groq 的 gpt-oss 模型時，機器人可以用 Groq 內建的 `browser_search` 上網，回答股市以外的知識、時事、天氣、公司新聞（模型自行判斷是否需要搜尋；個股股價與技術指標仍以網站資料為準）。有搜尋的回覆約 3～5 秒、每次約用 4,000～7,000 個 token，Groq 免費版每個模型每分鐘約 8,000 token，所以**每分鐘大約只能回 1～2 則需要搜尋的問題**；額度滿時改用 qwen（不能上網，會直說查不到）。設定 `TWSTOCK_LLM_WEB_SEARCH=0` 可關閉。
+
    `TWSTOCK_LLM_MODEL` 可用逗號列多個模型，前一個下架或失敗時依序改用下一個；系統診斷會顯示服務回傳的錯誤原因（例如模型已下架）。小模型常混用簡體字，回覆會自動以 OpenCC 轉成台灣繁體與用語；含髒話或貶抑字眼的回覆會被擋下改用句庫。Render 免費主機的記憶體跑不動模型本身，所以模型需放在上述服務或另一台主機。
 2. **Claude（選用）**：設定 `ANTHROPIC_API_KEY`，預設 `claude-opus-5-5`、思考深度 `low`，並開啟 server-side fallback（被安全機制拒答時伺服器自動改用其他模型）。
 3. **內建句庫（預設、免費）**：先判斷問題意圖（打招呼、道謝、套牢、要不要賣、能不能買、會不會漲、討明牌、大盤），再挑對應的回覆，提到股票時附上真實報價與技術訊號；「想買」時依當天漲跌提醒接刀或追高的風險；分析、目標價（支撐壓力與波動區間）、基本面問題會給完整數據，同一聊天室不會連續回同一句。
@@ -171,6 +173,7 @@ docker run -d --restart=always -p 8000:8000 -v twstock-data:/data -e TWSTOCK_PAS
 | `LINE_BROADCAST` | `0` | `1` = 推播給所有好友 |
 | `TWSTOCK_LLM_PROVIDER` | | 選填：LINE 對話使用免費開源模型（groq / openrouter / cloudflare / ollama / custom） |
 | `TWSTOCK_LLM_API_KEY` / `TWSTOCK_LLM_MODEL` / `TWSTOCK_LLM_BASE_URL` / `TWSTOCK_LLM_ACCOUNT_ID` | | 開源模型的金鑰、模型名稱、API 位址、Cloudflare 帳號 ID |
+| `TWSTOCK_LLM_WEB_SEARCH` | `1` | Groq gpt-oss 模型是否可上網搜尋（`0` = 關閉） |
 | `ANTHROPIC_API_KEY` | | 選填：LINE 對話使用 Claude 回答 |
 | `TWSTOCK_AI_MODEL` | `claude-opus-5-5` | 對話模型 |
 | `TWSTOCK_AI_EFFORT` | `low` | 思考深度（low / medium / high） |

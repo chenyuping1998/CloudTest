@@ -285,3 +285,33 @@ def test_user_cost_and_pnl_in_context():
          "lo20": 2020.0, "high_52w": 2600.0, "low_52w": 1375.0, "ret_1m": -10.0, "ret_3m": -5.0, "signals": [], "demo": False}
     ctx = chatbot.context_text([b], "我在 2400 買了台積電，現在怎麼辦")
     assert "帳面虧損 11.0%" in ctx and "每股 -265.00" in ctx
+
+
+def test_web_search_for_gpt_oss_only(monkeypatch):
+    monkeypatch.setenv("TWSTOCK_LLM_PROVIDER", "groq")
+    monkeypatch.setenv("TWSTOCK_LLM_API_KEY", "gsk_test")
+    bodies = []
+
+    class Searched(FakeResp):
+        def json(self):
+            return {"choices": [{"message": {"content": "答案是 **Francis Halzen**【1†L6-L14】。",
+                                             "executed_tools": [{"type": "browser_search", "arguments": "{}"}]}}]}
+    monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: bodies.append(kw["json"]) or Searched())
+    out = chatbot.reply("2026 年諾貝爾物理學獎得主是誰", "W1")
+    assert out == "答案是 Francis Halzen。"  # 去掉引用標記與 Markdown 粗體
+    body = bodies[0]
+    assert body["model"] == "openai/gpt-oss-120b" and body["tools"] == [{"type": "browser_search"}]
+    assert "今天是" in body["messages"][0]["content"] and "browser_search" in body["messages"][0]["content"]
+    assert "上網搜尋 1 次" in chatbot.status["last_source"]
+    # qwen（不支援內建搜尋）不帶 tools，但仍知道今天日期、遇到時事要說查不到
+    bodies.clear()
+    monkeypatch.setenv("TWSTOCK_LLM_MODEL", "qwen/qwen3.8-27b")
+    monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: bodies.append(kw["json"]) or FakeResp())
+    chatbot.reply("今天天氣如何", "W2")
+    assert "tools" not in bodies[0] and "沒辦法上網" in bodies[0]["messages"][0]["content"]
+    # 可以關閉
+    bodies.clear()
+    monkeypatch.setenv("TWSTOCK_LLM_MODEL", "openai/gpt-oss-120b")
+    monkeypatch.setenv("TWSTOCK_LLM_WEB_SEARCH", "0")
+    chatbot.reply("今天天氣如何", "W3")
+    assert "tools" not in bodies[0]

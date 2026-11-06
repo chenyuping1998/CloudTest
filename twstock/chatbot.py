@@ -13,6 +13,7 @@
 - TWSTOCK_LLM_API_KEY：該服務的 API 金鑰（ollama 不需要）
 - TWSTOCK_LLM_MODEL：模型名稱，可用逗號列多個（前一個下架或失敗時依序改用下一個；各服務有預設值）
 - TWSTOCK_LLM_BASE_URL：自訂 API 位址（custom / ollama 用；cloudflare 另需 TWSTOCK_LLM_ACCOUNT_ID）
+- TWSTOCK_LLM_WEB_SEARCH：是否讓 Groq 的 gpt-oss 模型使用內建 browser_search 上網查資料（預設 1）
 - ANTHROPIC_API_KEY：Claude API 金鑰（選填）
 - TWSTOCK_AI_MODEL：模型（預設 claude-opus-5-5）
 - TWSTOCK_AI_EFFORT：思考深度 low / medium / high（預設 low，聊天回覆快又省）
@@ -50,7 +51,7 @@ SYSTEM_PROMPT = """你是 LINE 群組裡的台股機器人「股市老司機」�
 - 不要預設對方的狀況：不要假設他有持股、做多、被套、賠錢或追高。只有他自己提到（例如「我被套了」「想追」）才針對那件事損他一句；也不要用反問去暗示他追高、被套或賠錢。沒有對象時，就酸市場、酸線型、酸散戶通病。
 - 毒舌要「微」：一句就好，損完要有點道理；不羞辱人格，不罵髒話，不拿外貌、性別、族群、身心障礙開玩笑，不開自我傷害的玩笑。
 - 簡短：1～3 句、80 字以內，不要長篇說教，不要重複對方的問題。
-- 數字只能用使用者訊息 <資料> 區塊裡的；資料沒有的就說不知道。只有 <資料> 寫著「沒有提到可查詢的股票」而他又在問個股時，才請他給代號。
+- 股價、漲跌、技術指標、支撐壓力等數字只能用使用者訊息 <資料> 區塊裡的；資料沒有的就說不知道。只有 <資料> 寫著「沒有提到可查詢的股票」而他又在問個股時，才請他給代號。
 - 不給「現在買 / 一定漲」這種明確買賣指令或保證；可以用一句話點出風險。
 - 用繁體中文和台灣用語，最多一個 emoji。
 
@@ -116,7 +117,7 @@ FOOTER = "（僅供參考，自己判斷）"
 _lock = threading.Lock()
 _chat_hits: dict[str, deque] = defaultdict(deque)
 _daily = {"date": "", "count": 0}
-status = {"last_error": None, "llm_error": None, "last_reply_at": None, "fallback_used": 0, "last_source": None}
+status = {"last_error": None, "llm_error": None, "last_reply_at": None, "fallback_used": 0, "last_source": None, "last_searches": 0}
 _client = None
 
 
@@ -423,6 +424,20 @@ LLM_PRESETS = {  # 預設模型為撰寫時各服務可用的開源模型，請�
     "ollama": {"base": "http://localhost:11434/v1", "model": "qwen2.5:3b"},
     "custom": {"base": "", "model": ""},
 }
+SEARCH_RULES = """
+- 今天是 {today}（台北時間）。
+- 你可以用 browser_search 上網查資料。股市以外的知識、時事、天氣、新聞，或你不確定、可能已經過時的事，先搜尋再回答；搜尋不到就直說不知道。
+- 個股的股價與技術指標已經在 <資料> 裡，不需要為了這些去搜尋；只有問到公司新聞、法說會、產業消息時才搜尋。
+- 回答時不要附網址、不要附引用標記，用一兩句話講重點就好。"""
+NO_SEARCH_RULES = """
+- 今天是 {today}（台北時間）。你沒辦法上網，遇到時事、天氣、最新消息就直說你查不到，不要編。"""
+
+
+def web_search_enabled(cfg: dict, model_name: str) -> bool:
+    """Groq 的 gpt-oss 模型有內建 browser_search（由 Groq 端執行搜尋）。"""
+    return (os.environ.get("TWSTOCK_LLM_WEB_SEARCH", "1") == "1" and cfg["provider"] == "groq" and "gpt-oss" in model_name)
+
+
 BAD_WORDS = ("幹你", "干你", "靠北", "操你", "白癡", "白痴", "白痴", "智障", "去死", "腦殘", "脑残", "他媽", "他妈", "fuck", "shit")
 _cc = None
 
@@ -459,6 +474,8 @@ def to_traditional(text: str) -> str:
 
 
 def clean_llm_text(text: str) -> str | None:
+    text = re.sub(r"【[^】]*†[^】]*】", "", text)  # 搜尋結果的引用標記，例如【1†L6-L14】
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)  # LINE 不支援 Markdown 粗體
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)  # Qwen 等推理模型的思考內容
     text = re.sub(r"^.*?</think>", "", text, flags=re.S).strip()
     raw = text
@@ -475,14 +492,19 @@ def _call_model(cfg: dict, model_name: str, question: str, context: str) -> tupl
         headers["Authorization"] = f"Bearer {cfg['key']}"
     if cfg["provider"] == "openrouter":
         headers["X-Title"] = "twstock-bot"
-    body = {"model": model_name, "temperature": 0.7, "max_tokens": 1200,
-            "messages": [{"role": "system", "content": SYSTEM_PROMPT + "\n- 一律使用繁體中文，不要用簡體字。"},
+    search = web_search_enabled(cfg, model_name)
+    today = datetime.now(TZ).strftime("%Y-%m-%d")
+    rules = (SEARCH_RULES if search else NO_SEARCH_RULES).format(today=today)
+    body = {"model": model_name, "temperature": 0.7, "max_tokens": 1500,
+            "messages": [{"role": "system", "content": SYSTEM_PROMPT + "\n- 一律使用繁體中文，不要用簡體字。" + rules},
                          {"role": "user", "content": f"<資料>\n{context}\n</資料>\n\n使用者的訊息：{question}"}]}
     if "gpt-oss" in model_name:
         body["reasoning_effort"] = "low"  # 推理模型：思考少一點，避免把 token 用光導致正文空白
+    if search:
+        body["tools"] = [{"type": "browser_search"}]
     label = f"{cfg['provider']}:{model_name}"
     try:
-        r = requests.post(f"{cfg['base']}/chat/completions", json=body, headers=headers, timeout=20)
+        r = requests.post(f"{cfg['base']}/chat/completions", json=body, headers=headers, timeout=25 if search else 20)
         if not r.ok:
             hint = {401: "金鑰無效", 402: "額度不足", 404: "模型名稱或 API 位址錯誤", 429: "超過免費額度或請求太頻繁"}.get(r.status_code, "")
             try:
@@ -493,7 +515,10 @@ def _call_model(cfg: dict, model_name: str, question: str, context: str) -> tupl
             log.warning("開源模型回覆失敗：%s", status["llm_error"])
             # 模型下架 / 不支援 / 這個模型的流量額度滿了（各模型額度分開計算）→ 換下一個
             return None, r.status_code in (400, 404, 413, 422, 429, 503)
-        text = ((r.json().get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+        msg = (r.json().get("choices") or [{}])[0].get("message") or {}
+        text = msg.get("content") or ""
+        searches = [t for t in (msg.get("executed_tools") or []) if "search" in str(t.get("type", ""))]
+        status["last_searches"] = len(searches)
     except (requests.RequestException, ValueError) as e:
         status["llm_error"] = f"{label} 連線失敗：{D.friendly_error(e)}"
         log.warning("開源模型回覆失敗：%s", status["llm_error"])
@@ -505,7 +530,7 @@ def _call_model(cfg: dict, model_name: str, question: str, context: str) -> tupl
         return None, True
     status["llm_error"] = None
     status["last_reply_at"] = datetime.now(TZ).strftime("%m/%d %H:%M")
-    status["last_source"] = label
+    status["last_source"] = label + (f"（上網搜尋 {status['last_searches']} 次）" if status.get("last_searches") else "")
     return out, False
 
 
