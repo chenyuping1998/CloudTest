@@ -225,8 +225,29 @@ def _fmt(v, d=1):
     return "—" if v is None else f"{v:.{d}f}"
 
 
+_COST_RE = re.compile(r"(?:成本|均價|買在|進在|買價|攤到)\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:元|塊)?\s*(?:買|進場|進的|入場|成本)")
+
+
+def user_cost(question: str) -> float | None:
+    """使用者提到的買進成本（例如「我在 2400 買了」「成本 950」）。"""
+    m = _COST_RE.search(question)
+    if not m:
+        return None
+    try:
+        v = float(m.group(1) or m.group(2))
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
 def context_text(briefs: list[dict], question: str) -> str:
     lines = []
+    cost = user_cost(question)
+    if cost and briefs:  # 損益由程式計算，模型不用自己算（小模型常算錯）
+        b = briefs[0]
+        pnl = (b["price"] / cost - 1) * 100
+        lines.append(f"使用者自己說的買進成本：{cost:,.2f}；{b['name']} 現價 {b['price']:,.2f}，"
+                     f"帳面{'獲利' if pnl >= 0 else '虧損'} {abs(pnl):.1f}%（每股 {b['price'] - cost:+,.2f}）。")
     for b in briefs:
         lines.append(
             f"{b['name']}（{b['code']}）{b['date']} 收盤 {b['price']:.2f}，漲跌 {b['change_pct']:+.2f}%，近一月 {_fmt(b['ret_1m'])}%，"
@@ -396,7 +417,7 @@ def canned_reply(question: str, briefs: list[dict], chat_id: str | None = None) 
 # ---------------------------------------------------------------- 開源模型（OpenAI 相容 API）
 
 LLM_PRESETS = {  # 預設模型為撰寫時各服務可用的開源模型，請以服務官網的模型清單為準
-    "groq": {"base": "https://api.groq.com/openai/v1", "model": "qwen/qwen3.8-27b,openai/gpt-oss-120b"},  # 2026-11 實測可用
+    "groq": {"base": "https://api.groq.com/openai/v1", "model": "openai/gpt-oss-120b,qwen/qwen3.8-27b"},  # 2026-11 實測可用
     "openrouter": {"base": "https://openrouter.ai/api/v1", "model": ""},  # 免費模型名單常變動，需自行指定（xxx:free）
     "cloudflare": {"base": "https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1", "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"},
     "ollama": {"base": "http://localhost:11434/v1", "model": "qwen2.5:3b"},

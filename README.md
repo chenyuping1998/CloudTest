@@ -70,7 +70,7 @@ TWSTOCK_SOURCE=demo uvicorn twstock.main:app
 
    | 服務 | `TWSTOCK_LLM_PROVIDER` | 需要的設定 | 預設模型（以官網清單為準） |
    | --- | --- | --- | --- |
-   | [Groq](https://console.groq.com)（推薦，免綁卡、速度快） | `groq` | `TWSTOCK_LLM_API_KEY` | `qwen/qwen3.8-27b`，失敗時改用 `openai/gpt-oss-120b`（2026-11 實測，回覆約 1 秒） |
+   | [Groq](https://console.groq.com)（推薦，免綁卡、速度快） | `groq` | `TWSTOCK_LLM_API_KEY` | `openai/gpt-oss-120b`，失敗或流量滿時改用 `qwen/qwen3.8-27b`（2026-11 實測，回覆約 1 秒） |
    | [OpenRouter](https://openrouter.ai) | `openrouter` | `TWSTOCK_LLM_API_KEY`、`TWSTOCK_LLM_MODEL`（選名稱結尾為 `:free` 的模型） | 需自行指定 |
    | [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/) | `cloudflare` | `TWSTOCK_LLM_API_KEY`、`TWSTOCK_LLM_ACCOUNT_ID` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` |
    | 自架 [Ollama](https://ollama.com)（例如 Oracle Cloud 免費主機） | `ollama` | `TWSTOCK_LLM_BASE_URL`（例 `http://你的主機:11434/v1`） | `qwen2.5:3b` |

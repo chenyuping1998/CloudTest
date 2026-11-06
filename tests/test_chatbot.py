@@ -163,9 +163,9 @@ def test_groq_request_and_traditional_conversion(monkeypatch):
     assert out == "這隻股票的軟體概念太熱門，追高要設定止損。"  # 去掉思考、簡轉繁（台灣用語）
     url, kw = calls[0]
     assert url == "https://api.groq.com/openai/v1/chat/completions"
-    assert kw["headers"]["Authorization"] == "Bearer gsk_test" and kw["json"]["model"] == "qwen/qwen3.8-27b"
+    assert kw["headers"]["Authorization"] == "Bearer gsk_test" and kw["json"]["model"] == "openai/gpt-oss-120b"
     assert "台積電（2330）" in kw["json"]["messages"][1]["content"] and "繁體中文" in kw["json"]["messages"][0]["content"]
-    assert chatbot.status["last_source"] == "groq:qwen/qwen3.8-27b"
+    assert chatbot.status["last_source"] == "groq:openai/gpt-oss-120b"
 
 
 def test_llm_failures_fall_back(monkeypatch):
@@ -245,13 +245,13 @@ def test_model_fallback_chain(monkeypatch):
 
     def post(url, **kw):
         tried.append(kw["json"]["model"])
-        return FakeResp(404) if kw["json"]["model"] == "qwen/qwen3.8-27b" else FakeResp(content="備用模型回覆")
+        return FakeResp(404) if kw["json"]["model"] == "openai/gpt-oss-120b" else FakeResp(content="備用模型回覆")
     monkeypatch.setattr(chatbot.requests, "post", post)
     assert chatbot.reply("隨便聊聊", "C1") == "備用模型回覆"
-    assert tried == ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"] and chatbot.status["last_source"] == "groq:openai/gpt-oss-120b"
+    assert tried == ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"] and chatbot.status["last_source"] == "groq:qwen/qwen3.8-27b"
     tried.clear()  # 429（這個模型的流量滿了）→ 換下一個模型；全部都滿才用句庫
     monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: tried.append(kw["json"]["model"]) or FakeResp(429))
-    assert chatbot.reply("隨便聊聊", "C2") in chatbot.GENERIC and tried == ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
+    assert chatbot.reply("隨便聊聊", "C2") in chatbot.GENERIC and tried == ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"]
     tried.clear()  # 401（金鑰錯）不換模型
     monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: tried.append(1) or FakeResp(401))
     chatbot.reply("隨便聊聊", "C4")
@@ -273,3 +273,15 @@ def test_library_does_not_presume_user_is_trapped():
         for line in pool:
             assert not any(p in line for p in presumptive), line
     assert "賠了別哭" not in chatbot.FOOTER
+
+
+def test_user_cost_and_pnl_in_context():
+    assert chatbot.user_cost("我在 2400 買了台積電") == 2400
+    assert chatbot.user_cost("成本 95.5 的 0050") == 95.5
+    assert chatbot.user_cost("買在 300 被套") == 300
+    assert chatbot.user_cost("台積電能買嗎") is None
+    b = {"code": "2330", "name": "台積電", "date": "2026-11-06", "price": 2135.0, "change_pct": -4.7, "score": 43,
+         "rsi": 19.0, "k": 20.0, "d": 30.0, "ma5": 2200.0, "ma20": 2390.0, "ma60": 2422.0, "atr": 80.0, "hi20": 2500.0,
+         "lo20": 2020.0, "high_52w": 2600.0, "low_52w": 1375.0, "ret_1m": -10.0, "ret_3m": -5.0, "signals": [], "demo": False}
+    ctx = chatbot.context_text([b], "我在 2400 買了台積電，現在怎麼辦")
+    assert "帳面虧損 11.0%" in ctx and "每股 -265.00" in ctx
