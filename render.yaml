@@ -28,3 +28,5 @@ services:
         sync: false   # 外部排程金鑰：cron-job.org 呼叫 /cron/tick?key=此值，喚醒伺服器並推播
       - key: TWSTOCK_ALERTS
         sync: false   # 選填：警示設定（網站「複製警示設定」產生），免費主機重啟後自動還原
+      - key: ANTHROPIC_API_KEY
+        sync: false   # 選填：LINE 機器人被 tag / 私訊時用 Claude 回答（未設定則用內建句庫回覆）

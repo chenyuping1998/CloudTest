@@ -39,6 +39,7 @@ HELP = ("📈 台股機器人指令\n"
         "• 精選：今日精選 5 檔與原因\n"
         "• id：顯示這個聊天室的 ID（設定推播對象用）\n"
         "• 說明：顯示本說明\n"
+        "• 在群組 @我 或私訊我隨便問，我會用老司機的方式回答（毒舌附贈）\n"
         "盤中警示觸發時會自動推播。資訊僅供參考，不構成投資建議。")
 
 
@@ -189,6 +190,40 @@ def handle_text(text: str, source: dict) -> str | None:
     return None  # 其他訊息不回覆（避免在群組中洗版）
 
 
+_bot_user_id: str | None = None
+
+
+def bot_user_id() -> str | None:
+    """機器人自己的 userId（判斷是否被 tag 的備援方法）。"""
+    global _bot_user_id
+    if _bot_user_id is None and _token():
+        try:
+            r = requests.get("https://api.line.me/v2/bot/info", headers={"Authorization": f"Bearer {_token()}"}, timeout=10)
+            if r.ok:
+                _bot_user_id = r.json().get("userId") or ""
+        except requests.RequestException:
+            pass
+    return _bot_user_id or None
+
+
+def mentioned_self(msg: dict) -> bool:
+    mentionees = ((msg.get("mention") or {}).get("mentionees")) or []
+    if any(m.get("isSelf") for m in mentionees):
+        return True
+    me = bot_user_id() if mentionees else None
+    return bool(me) and any(m.get("userId") == me for m in mentionees)
+
+
+def strip_mentions(msg: dict) -> str:
+    """移除訊息中 @機器人 的文字，只留下真正的問題。"""
+    text = msg.get("text", "")
+    spans = sorted(((m.get("index", 0), m.get("length", 0)) for m in ((msg.get("mention") or {}).get("mentionees") or [])
+                    if m.get("isSelf") or m.get("type") == "user"), reverse=True)
+    for idx, length in spans:
+        text = text[:idx] + text[idx + length:]
+    return text.strip()
+
+
 def handle_events(payload: dict) -> None:
     for ev in payload.get("events", []):
         if ev.get("type") == "follow" and ev.get("replyToken"):
@@ -203,6 +238,14 @@ def handle_events(payload: dict) -> None:
         msg = ev.get("message") or {}
         if ev.get("type") != "message" or msg.get("type") != "text" or not ev.get("replyToken"):
             continue
-        answer = handle_text(msg.get("text", ""), ev.get("source") or {})
+        source = ev.get("source") or {}
+        is_direct = source.get("type", "user") == "user"
+        tagged = mentioned_self(msg)
+        text = strip_mentions(msg) if tagged else msg.get("text", "")
+        answer = handle_text(text, source)  # 指令（代號、精選、id、說明）照常回覆
+        if answer is None and (is_direct or tagged):  # 私訊或在群組被 tag：對話回覆
+            from . import chatbot
+            chat_id = source.get("groupId") or source.get("roomId") or source.get("userId") or "unknown"
+            answer = chatbot.reply(text, chat_id)
         if answer:
             reply(ev["replyToken"], answer)

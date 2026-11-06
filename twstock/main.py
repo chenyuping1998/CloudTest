@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import analysis, backtest as bt, data as D, fundamentals, indicators as ind, line_bot, monitor, notifier, picks, portfolio, screener
+from . import analysis, backtest as bt, chatbot, data as D, fundamentals, indicators as ind, line_bot, monitor, notifier, picks, portfolio, screener
 
 STATIC = Path(__file__).parent / "static"
 # 預設為公開網站：瀏覽、分析、回測、選股都不需登入。
@@ -426,6 +426,7 @@ def admin_status(probe: bool = True, _: None = Depends(require_admin_or_local)):
                    "enabled": sum(a.get("enabled", True) for a in monitor.get_alerts()),
                    "persisted": monitor.alerts_export() == monitor.export_json(monitor.seed_alerts())},
         "fundamentals": fundamentals.status(),
+        "ai": chatbot.usage(),
     }
 
 

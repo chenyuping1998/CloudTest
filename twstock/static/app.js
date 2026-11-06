@@ -534,6 +534,10 @@ async function runDiagnostics() {
       item(line.channel_secret, `LINE channel secret ${line.channel_secret ? '已設定' : '未設定（機器人無法回話）'}`),
       item(line.enabled, line.broadcast ? 'LINE 推播對象：所有好友（廣播）' : line.to.length ? `LINE 推播對象：${line.to.map(esc).join('、')}` : 'LINE 推播對象未設定（LINE_TO）'),
       ...(line.last_error ? [item(false, `LINE 最近錯誤：${esc(line.last_error)}`)] : []),
+      item(true, r.ai.configured
+        ? `LINE 對話：Claude（${esc(r.ai.model)}）｜今日 ${r.ai.today}/${r.ai.daily_limit} 次${r.ai.last_reply_at ? `｜最近 ${esc(r.ai.last_reply_at)}` : ''}`
+        : 'LINE 對話：未設定 ANTHROPIC_API_KEY，被 tag 時用內建句庫回覆（免費）'),
+      ...(r.ai.configured && r.ai.last_error ? [item(false, `AI 最近狀況：${esc(r.ai.last_error)}`)] : []),
       item(r.telegram.configured && !r.telegram.last_error, `Telegram ${r.telegram.configured ? '已設定' : '未設定（選填）'}${r.telegram.last_error && r.telegram.configured ? `，但最近一次失敗：${esc(r.telegram.last_error)}` : ''}`),
     ]),
     group('排程與保存', [
