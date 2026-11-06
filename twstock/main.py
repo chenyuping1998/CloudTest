@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import analysis, backtest as bt, data as D, indicators as ind, line_bot, monitor, notifier, picks, portfolio, screener
+from . import analysis, backtest as bt, data as D, fundamentals, indicators as ind, line_bot, monitor, notifier, picks, portfolio, screener
 
 STATIC = Path(__file__).parent / "static"
 # 預設為公開網站：瀏覽、分析、回測、選股都不需登入。
@@ -348,8 +348,17 @@ def push_picks_now(_: None = Depends(require_admin_or_local)):
 def _probe(url: str, params: dict | None = None) -> dict:
     t = time.time()
     try:
-        r = requests.get(url, params=params, headers=D.HEADERS, timeout=10)
-        ok = r.ok and len(r.content) > 50
+        r = requests.get(url, params=params, headers=D.HEADERS, timeout=10, allow_redirects=False)
+        blocked = "SECURITY REASONS" in r.text[:2000] or "安全性考量" in r.text[:2000]
+        try:
+            r.json()
+            is_json = True
+        except ValueError:
+            is_json = False
+        ok = r.ok and is_json and not blocked
+        if blocked:
+            return {"ok": False, "status": r.status_code, "ms": int((time.time() - t) * 1000),
+                    "error": "被對方封鎖（回傳「因為安全性考量，您所執行的頁面無法呈現」）"}
         return {"ok": ok, "status": r.status_code, "ms": int((time.time() - t) * 1000),
                 **({} if ok else {"error": f"HTTP {r.status_code}" + ("（可能被封鎖或限流）" if r.status_code in (403, 429) else "")})}
     except requests.RequestException as e:
@@ -389,6 +398,7 @@ def admin_status(_: None = Depends(require_admin_or_local)):
         "server_time": datetime.now(notifier.TZ).strftime("%Y-%m-%d %H:%M:%S"),
         "cron": {"configured": bool(os.environ.get("TWSTOCK_CRON_KEY", "").strip()), "last_tick": notifier.last_tick},
         "alerts": {"count": len(monitor.get_alerts()), "seeded": len(monitor.seed_alerts())},
+        "fundamentals": fundamentals.status(),
     }
 
 

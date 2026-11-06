@@ -37,6 +37,21 @@ FIELDS: dict[str, dict] = {
     "pe": {"label": "本益比(倍)", "group": "基本"},
     "dividend_yield": {"label": "殖利率(%)", "group": "基本"},
     "pb": {"label": "股價淨值比(倍)", "group": "基本"},
+    "pe_pb": {"label": "本益比×淨值比（葛拉漢 < 22.5）", "group": "基本"},
+    "market_cap": {"label": "市值(億)", "group": "基本"},
+    "eps": {"label": "EPS（今年累計，元）", "group": "財報"},
+    "roe": {"label": "ROE（年化，%）", "group": "財報"},
+    "gross_margin": {"label": "毛利率(%)", "group": "財報"},
+    "op_margin": {"label": "營益率(%)", "group": "財報"},
+    "debt_ratio": {"label": "負債比(%)", "group": "財報"},
+    "current_ratio": {"label": "流動比(倍)", "group": "財報"},
+    "quality_score": {"label": "財務體質分數(0~6)", "group": "財報"},
+    "z_score": {"label": "Altman Z 分數（> 2.99 安全）", "group": "財報"},
+    "magic_roc": {"label": "神奇公式：資本報酬率(%)", "group": "財報"},
+    "magic_ey": {"label": "神奇公式：盈餘殖利率(%)", "group": "財報"},
+    "margin_usage": {"label": "融資使用率(%)", "group": "融資"},
+    "short_ratio": {"label": "券資比(%)", "group": "融資"},
+    "margin_chg": {"label": "融資增減(%，較前日)", "group": "融資"},
 }
 
 TECHNICAL: dict[str, dict] = {
@@ -52,6 +67,8 @@ TECHNICAL: dict[str, dict] = {
     "new_high_60": {"label": "創 60 日新高"},
     "minervini": {"label": "符合 Minervini 趨勢模板（8 項全中）"},
     "momentum_12_1": {"label": "12-1 個月動能為正且優於 0050"},
+    "near_52w_high": {"label": "距 52 週高點 10% 以內"},
+    "low_vol": {"label": "低波動（近 60 日年化波動 < 30%）"},
 }
 
 OPS = {">": operator.gt, ">=": operator.ge, "<": operator.lt, "<=": operator.le}
@@ -117,9 +134,14 @@ def build_table(market: str, days: int, use_demo: bool = False) -> tuple[pd.Data
     if market == "twse":  # 基本面資料目前只有上市（證交所 OpenAPI）
         fund = F.get_fundamentals(use_demo)
         out = out.join(fund, how="left")
-    for col in ("rev_yoy", "rev_cum_yoy", "pe", "dividend_yield", "pb"):
+    for col in F.COLUMNS[1:]:
         if col not in out:
             out[col] = np.nan
+    pm = F.price_metrics(out, out["close"])  # 需要股價的指標：市值、Altman Z、神奇公式
+    out["market_cap"] = pm["market_cap"] / 1e8
+    for k in ("z_score", "magic_roc", "magic_ey"):
+        out[k] = pm[k]
+    out["pe_pb"] = out["pe"].where(out["pe"] > 0) * out["pb"]
     return out.reset_index(), dates[1:] if has_base else dates
 
 
@@ -154,6 +176,8 @@ def _technical_ok(code: str, checks: list[str], use_demo: bool) -> tuple[bool, d
         "new_high_60": lambda: c >= df["close"].iloc[-60:].max(),
         "minervini": lambda: MD.minervini(df, _bench(use_demo)).passed,
         "momentum_12_1": lambda: MD.momentum_12_1(df, _bench(use_demo)).passed,
+        "near_52w_high": lambda: (MD.high_52w_ratio(df) or 0) >= 0.9,
+        "low_vol": lambda: (MD.volatility(df) or 9) < 0.3,
     }
     ok = all(bool(tests[k]()) for k in checks if k in tests)
     info = {"rsi": last["rsi"], "k": last["k"], "d": last["d"], "ma20": last["ma20"]}

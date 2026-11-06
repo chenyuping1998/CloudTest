@@ -53,3 +53,28 @@ def test_one_bad_stock_does_not_break_picks(monkeypatch):
     r = picks.compute(use_demo=True)
     assert bad and len(r["picks"]) == 5
     picks._cache.clear()
+
+
+def test_window_retries_then_uses_partial_days(monkeypatch):
+    calls = {"n": 0}
+    days_ok = {date(2026, 11, 5), date(2026, 11, 4), date(2026, 11, 3)}
+
+    class Today(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 11, 5)
+    monkeypatch.setattr(M, "date", Today)
+    monkeypatch.setattr(M.time, "sleep", lambda s: None)
+
+    def fake_day(market, d, use_demo=False):
+        calls["n"] += 1
+        if d in days_ok:
+            return _window(1)[0][1], _window(1)[0][2]
+        raise ValueError("blocked")
+    monkeypatch.setattr(M, "get_day", fake_day)
+    w = M.get_window("twse", 11)
+    assert [x[0] for x in w] == sorted(days_ok)  # 第 4 天被擋，重試後以 3 天繼續
+    days_ok.discard(date(2026, 11, 3))
+    import pytest as _pytest
+    with _pytest.raises(Exception):
+        M.get_window("twse", 11)  # 只有 2 天 → 不足以繼續

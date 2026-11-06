@@ -5,6 +5,11 @@
 - 12-1 個月動能（Jegadeesh & Titman, 1993）：過去 12 個月扣除最近 1 個月的報酬。
 - 營收成長動能（台灣常見的月營收選股法）：月營收年增率與累計年增率。
 - 價值 / 高殖利率：本益比合理、現金殖利率高。
+- 葛拉漢條件（Benjamin Graham）：本益比 × 股價淨值比 < 22.5。
+- 財務體質分數：參考 Piotroski F-Score 的獲利與財務安全項目（精簡版，最高 6 分）。
+- Altman Z 分數（1968）：破產風險，< 1.81 為危險區、> 2.99 為安全區（一般業）。
+- 因子：52 週高點動能（George & Hwang, 2004）、低波動（低波動異常）。
+- 大盤多空濾網：0050 相對 200 日均線（時間序列動能）。
 """
 from __future__ import annotations
 
@@ -33,6 +38,9 @@ MODELS = {
     "momentum": {"name": "12-1 個月動能", "desc": "過去 12 個月（扣除最近 1 個月）報酬為正且優於 0050（學術上最穩健的動能因子之一）"},
     "revenue": {"name": "營收成長動能", "desc": "最新月營收年增 > 20% 且累計營收年增 > 10%"},
     "value": {"name": "價值 / 高殖利率", "desc": "本益比 0~15 倍且現金殖利率 ≥ 4%"},
+    "graham": {"name": "葛拉漢條件", "desc": "本益比 × 股價淨值比 < 22.5，且本益比為正"},
+    "quality": {"name": "財務體質", "desc": "獲利、本業獲利、ROE ≥ 8%、負債比 < 60%、流動比 ≥ 1.25、累計營收成長（6 項，參考 Piotroski F-Score）"},
+    "altman": {"name": "Altman Z 分數", "desc": "破產風險模型：> 2.99 安全、1.81~2.99 灰色地帶、< 1.81 危險（一般業）"},
 }
 
 
@@ -151,5 +159,82 @@ def value_yield(fund: dict | None) -> ModelResult:
     return r
 
 
+def graham(fund: dict | None) -> ModelResult:
+    r = ModelResult("graham", False)
+    pe, pb = _num((fund or {}).get("pe")), _num((fund or {}).get("pb"))
+    if pe is None or pb is None or pe <= 0:
+        return r
+    r.detail = {"pe_x_pb": pe * pb}
+    if pe * pb < 22.5:
+        r.passed, r.score = True, 1
+        r.reasons.append(f"符合葛拉漢條件（本益比×淨值比 {pe * pb:.1f}）")
+    return r
+
+
+def quality(fund: dict | None) -> ModelResult:
+    r = ModelResult("quality", False)
+    q = _num((fund or {}).get("quality_score"))
+    if q is None:
+        return r
+    r.detail = {"score": q, "period": (fund or {}).get("fs_period")}
+    if q >= 5:
+        r.passed, r.score = True, 1.5
+        r.reasons.append(f"財務體質 {q:.0f}/6")
+    elif q <= 2:
+        r.score = -1.5
+        r.risks.append(f"財務體質偏弱 {q:.0f}/6")
+    return r
+
+
+def altman_z(fund: dict | None, price: float | None) -> ModelResult:
+    from .fundamentals import price_metrics
+    r = ModelResult("altman", False)
+    if not fund or price is None or _num(fund.get("total_assets")) is None:
+        return r
+    z = _num(price_metrics(fund, price)["z_score"])
+    if z is None:
+        return r
+    r.detail = {"z": z}
+    if z > 2.99:
+        r.passed = True
+        r.reasons.append(f"Altman Z {z:.1f} 安全區")
+    elif z < 1.81:
+        r.score = -3
+        r.risks.append(f"Altman Z {z:.1f} 財務危險區")
+    return r
+
+
+def high_52w_ratio(df: pd.DataFrame) -> float | None:
+    """收盤價 / 52 週最高價（越接近 1 越強）。"""
+    if len(df) < 120:
+        return None
+    hi = float(df["high"].iloc[-252:].max())
+    return float(df["close"].iloc[-1]) / hi if hi else None
+
+
+def volatility(df: pd.DataFrame, days: int = 60) -> float | None:
+    rets = df["close"].pct_change().iloc[-days:].dropna()
+    return float(rets.std() * math.sqrt(252)) if len(rets) >= days // 2 else None
+
+
+def market_regime(bench: pd.DataFrame | None) -> dict:
+    """大盤多空：0050 收盤相對 200 日均線與均線方向。"""
+    if bench is None or len(bench) < 220:
+        return {"state": "unknown", "label": "大盤資料不足", "detail": ""}
+    c = bench["close"]
+    ma200, ma60 = ind.sma(c, 200), ind.sma(c, 60)
+    price, m200, m60 = float(c.iloc[-1]), float(ma200.iloc[-1]), float(ma60.iloc[-1])
+    rising = m200 > float(ma200.iloc[-21])
+    gap = price / m200 - 1
+    detail = f"0050 {price:.2f}，距 200 日線 {gap:+.1%}"
+    if price > m200 and rising and price > m60:
+        return {"state": "bull", "label": "多頭", "detail": detail, "gap": gap}
+    if price < m200:
+        return {"state": "bear", "label": "空頭", "detail": detail, "gap": gap}
+    return {"state": "neutral", "label": "盤整", "detail": detail, "gap": gap}
+
+
 def evaluate_all(df: pd.DataFrame, fund: dict | None, bench_close: pd.Series | None) -> list[ModelResult]:
-    return [minervini(df, bench_close), momentum_12_1(df, bench_close), revenue_growth(fund), value_yield(fund)]
+    price = float(df["close"].iloc[-1]) if len(df) else None
+    return [minervini(df, bench_close), momentum_12_1(df, bench_close), revenue_growth(fund), value_yield(fund),
+            graham(fund), quality(fund), altman_z(fund, price)]

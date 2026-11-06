@@ -64,9 +64,11 @@ def test_live_fundamentals_failure_is_non_fatal(monkeypatch):
     def boom(path):
         raise ConnectionError("blocked")
     monkeypatch.setattr(F, "_fetch", boom)
+    monkeypatch.setattr(F.time, "sleep", lambda s: None)
     F._mem.clear()
     df = F.get_fundamentals(use_demo=False)
-    assert df.empty and list(df.columns) == F.COLUMNS[1:]
+    assert df.empty and set(F.COLUMNS[1:]) <= set(df.columns)
+    assert all(v.startswith("失敗") for v in F.status().values())
     F._mem.clear()
 
 

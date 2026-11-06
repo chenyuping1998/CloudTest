@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import json
 import threading
 import time
@@ -19,6 +20,7 @@ import requests
 from . import data as D
 
 MARKET_CACHE = D.CACHE_DIR / "market"
+log = logging.getLogger("twstock.market")
 _net_lock = threading.Lock()
 _last_request = 0.0
 
@@ -243,18 +245,38 @@ def _get_day_live(market: str, d: date) -> tuple[pd.DataFrame, pd.DataFrame] | N
     return out[0], out[1]
 
 
+RETRY_WAIT = 20  # 被證交所暫時擋下時，等待後重試（秒）
+MIN_PARTIAL_DAYS = 3  # 重試仍失敗時，至少已取得幾天才以部分資料繼續
+
+
 def get_window(market: str, days: int, use_demo: bool = False, max_lookback: int = 60) -> list[tuple[date, pd.DataFrame, pd.DataFrame]]:
-    """由近到遠往回找 `days` 個交易日的資料，回傳由舊到新排序。"""
+    """由近到遠往回找 `days` 個交易日的資料，回傳由舊到新排序。
+
+    證交所連續請求可能暫時封鎖：先等待重試一次；仍失敗時，若已取得至少 MIN_PARTIAL_DAYS 天，
+    就以已取得的天數繼續（呼叫端可由回傳長度得知），否則拋出 DataError。
+    """
     got = []
     d = date.today()
     tried = 0
+    name = {"twse": "證交所", "tpex": "櫃買中心"}.get(market, market)
     while len(got) < days and tried < max_lookback:
         if d.weekday() < 5:
-            try:
-                day = get_day(market, d, use_demo)
-            except Exception as e:  # noqa: BLE001 - 網路或格式錯誤
-                name = {"twse": "證交所", "tpex": "櫃買中心"}.get(market, market)
-                raise D.DataError(f"{name} {d:%Y-%m-%d} 資料取得失敗：{D.friendly_error(e)}") from e
+            day, err = None, None
+            for attempt in range(2):
+                try:
+                    day = get_day(market, d, use_demo)
+                    err = None
+                    break
+                except Exception as e:  # noqa: BLE001 - 網路或格式錯誤（含被封鎖時回傳的網頁）
+                    err = e
+                    if attempt == 0:
+                        log.warning("%s %s 取得失敗，%d 秒後重試：%s", name, d, RETRY_WAIT, D.friendly_error(e))
+                        time.sleep(RETRY_WAIT)
+            if err is not None:
+                if len(got) >= MIN_PARTIAL_DAYS:
+                    log.warning("%s %s 仍無法取得，改用已取得的 %d 天資料", name, d, len(got))
+                    break
+                raise D.DataError(f"{name} {d:%Y-%m-%d} 資料取得失敗：{D.friendly_error(err)}") from err
             if day is not None:
                 got.append((d, day[0], day[1]))
         d -= timedelta(days=1)

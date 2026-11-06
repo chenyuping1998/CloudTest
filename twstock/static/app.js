@@ -421,6 +421,7 @@ function initMonitor() {
         ? (r.cron.last_tick ? `排程最近一次執行：${esc(r.cron.last_tick.at)}（${esc(r.cron.last_tick.source)}）` : '已設定 TWSTOCK_CRON_KEY，但伺服器啟動後還沒收到排程呼叫')
         : '未設定外部排程（TWSTOCK_CRON_KEY）：免費主機休眠時不會推播'),
       item(r.alerts.count === 0 || r.alerts.seeded > 0, `伺服器警示 ${r.alerts.count} 筆${r.alerts.count ? (r.alerts.seeded ? `，重啟後可還原 ${r.alerts.seeded} 筆` : '，尚未保存到 TWSTOCK_ALERTS，重啟後會消失') : '（尚未設定，所以不會有警示推播）'}`),
+      ...Object.entries(r.fundamentals || {}).map(([k, v]) => item(v.startsWith('OK'), `基本面資料「${esc(k)}」：${esc(v)}`)),
       lp ? item(lp.ok, `最近一次精選推播（${esc(lp.at)}）：${lp.ok ? '成功' : esc(lp.error || errText(lp.errors) || '失敗')}`) : item(true, '尚未推播過每日精選（伺服器重啟後會清空紀錄）'),
     ].join('');
     $('#status-panel').hidden = false;
@@ -688,14 +689,19 @@ async function loadPicks() {
   try {
     const r = await api('/api/picks');
     if (r.source === 'demo') setSource('demo');
-    $('#picks-meta').textContent = `資料日期 ${r.date}｜符合流動性條件 ${r.eligible} 檔${r.source === 'demo' ? '｜示範資料' : ''}`;
+    $('#picks-meta').textContent = `資料日期 ${r.date}｜符合流動性條件 ${r.eligible} 檔、候選 ${r.candidates ?? '—'} 檔${r.source === 'demo' ? '｜示範資料' : ''}`;
+    const reg = r.regime || {};
+    const regCls = { bull: 'bull', bear: 'bear', neutral: 'neutral' }[reg.state] || 'neutral';
+    $('#picks-regime').innerHTML = reg.state && reg.state !== 'unknown'
+      ? `<span class="tag ${regCls}">大盤${esc(reg.label)}</span> ${esc(reg.detail)}${reg.state === 'bear' ? '　⚠ 空頭：精選減為 3 檔，權重偏重低波動與財務體質' : ''}`
+      : '';
     $('#picks-methods').textContent = `綜合篩選法：${r.methods.map((m) => m.name).join('、')}${r.fundamentals ? '' : '（基本面資料暫時無法取得，本次未計入）'}。排除 10 日均量 < 1000 張或股價 < 10 元。僅供參考，不構成投資建議。`;
-    $('#picks-table').innerHTML = `<thead><tr><th>代號</th><th>名稱</th><th>收盤</th><th>當日</th><th>10日</th><th>外資(張)</th><th>投信(張)</th><th>分數</th><th style="text-align:left">原因</th><th></th></tr></thead>
-      <tbody>${r.picks.map((p) => `<tr class="clickable" data-code="${esc(p.code)}"><td>${esc(p.code)}</td><td>${esc(p.name)}</td><td>${num(p.close)}</td>
+    $('#picks-table').innerHTML = `<thead><tr><th>代號</th><th>名稱</th><th>產業</th><th>收盤</th><th>當日</th><th>10日</th><th>外資(張)</th><th>投信(張)</th><th>分數</th><th style="text-align:left">原因</th><th></th></tr></thead>
+      <tbody>${r.picks.map((p) => `<tr class="clickable" data-code="${esc(p.code)}" title="${esc(Object.entries(p.factors || {}).map(([k, v]) => `${(r.factors || {})[k] || k}：${v}`).join('\n'))}"><td>${esc(p.code)}</td><td>${esc(p.name)}</td><td class="muted">${esc(p.industry || '—')}</td><td>${num(p.close)}</td>
         <td class="${cls(p.day_change_pct)}">${p.day_change_pct > 0 ? '+' : ''}${num(p.day_change_pct)}%</td><td class="${cls(p.change_pct)}">${p.change_pct > 0 ? '+' : ''}${num(p.change_pct)}%</td>
         <td class="${cls(p.foreign_net)}">${signed(p.foreign_net, 0)}</td><td class="${cls(p.trust_net)}">${signed(p.trust_net, 0)}</td><td>${p.score}</td>
-        <td style="text-align:left;white-space:normal">${(p.model_reasons || []).map((t) => `<span class="tag add">✅ ${esc(t)}</span>`).join(' ')} ${(p.signals || p.reasons).map((t) => `<span class="tag bull">${esc(t)}</span>`).join(' ')}${p.risks.map((t) => ` <span class="tag reduce">⚠ ${esc(t)}</span>`).join('')}</td>
-        <td><button class="ghost small" data-watch="${esc(p.code)}">＋自選</button></td></tr>`).join('') || '<tr><td colspan="10" class="muted">今天沒有符合條件的股票</td></tr>'}</tbody>`;
+        <td style="text-align:left;white-space:normal">${(p.signals || p.reasons).slice(0, 4).map((t) => `<span class="tag bull">${esc(t)}</span>`).join(' ')} ${(p.model_extra || p.model_reasons || []).slice(0, 3).map((t) => `<span class="tag add">✅ ${esc(t)}</span>`).join(' ')}${p.risks.map((t) => ` <span class="tag reduce">⚠ ${esc(t)}</span>`).join('')}</td>
+        <td><button class="ghost small" data-watch="${esc(p.code)}">＋自選</button></td></tr>`).join('') || '<tr><td colspan="11" class="muted">今天沒有符合條件的股票</td></tr>'}</tbody>`;
   } catch (e) { picksLoaded = false; $('#picks-table').innerHTML = `<tbody><tr><td class="muted">載入失敗：${esc(e.message)}</td></tr></tbody>`; }
 }
 
@@ -711,15 +717,19 @@ const PRESETS = [
   { name: '量增價漲', days: 5, filters: [{ field: 'volume_ratio', op: '>', value: 2 }, { field: 'day_change_pct', op: '>', value: 3 }], sort: 'volume_ratio' },
   { name: 'Minervini 趨勢模板', days: 10, filters: [{ field: 'volume_avg', op: '>', value: 500 }], technical: ['minervini'], sort: 'change_pct' },
   { name: '營收成長＋趨勢向上', days: 10, filters: [{ field: 'rev_yoy', op: '>', value: 20 }, { field: 'rev_cum_yoy', op: '>', value: 10 }], technical: ['above_ma60'], sort: 'rev_yoy' },
+  { name: '財務體質佳＋低波動', days: 10, filters: [{ field: 'quality_score', op: '>=', value: 5 }, { field: 'z_score', op: '>', value: 2.99 }, { field: 'volume_avg', op: '>', value: 300 }], technical: ['low_vol'], sort: 'roe' },
+  { name: '神奇公式', days: 10, filters: [{ field: 'magic_roc', op: '>', value: 15 }, { field: 'market_cap', op: '>', value: 50 }], sort: 'magic_ey' },
+  { name: '葛拉漢價值股', days: 10, filters: [{ field: 'pe_pb', op: 'between', value: 0.01, value2: 22.5 }, { field: 'dividend_yield', op: '>=', value: 3 }, { field: 'volume_avg', op: '>', value: 300 }], sort: 'dividend_yield' },
+  { name: '籌碼乾淨＋法人買', days: 10, filters: [{ field: 'margin_usage', op: '<', value: 5 }, { field: 'inst_net', op: '>', value: 0 }, { field: 'volume_avg', op: '>', value: 500 }], sort: 'inst_net' },
   { name: '高殖利率存股', days: 10, filters: [{ field: 'dividend_yield', op: '>=', value: 5 }, { field: 'pe', op: 'between', value: 0.01, value2: 15 }, { field: 'volume_avg', op: '>', value: 500 }], sort: 'dividend_yield' },
 ];
-const DEFAULT_VALUES = { trust_net: 0, foreign_net: 0, dealer_net: 0, inst_net: 0, trust_days: 5, foreign_days: 5, trust_streak: 3, foreign_streak: 3, dealer_streak: 3, trust_ratio: 1, foreign_ratio: 1, close: 10, day_change_pct: 0, change_pct: 0, volume_avg: 1000, value_avg: 1, volume_ratio: 1.5, rev_yoy: 20, rev_cum_yoy: 10, pe: 15, dividend_yield: 4, pb: 1.5 };
+const DEFAULT_VALUES = { trust_net: 0, foreign_net: 0, dealer_net: 0, inst_net: 0, trust_days: 5, foreign_days: 5, trust_streak: 3, foreign_streak: 3, dealer_streak: 3, trust_ratio: 1, foreign_ratio: 1, close: 10, day_change_pct: 0, change_pct: 0, volume_avg: 1000, value_avg: 1, volume_ratio: 1.5, rev_yoy: 20, rev_cum_yoy: 10, pe: 15, dividend_yield: 4, pb: 1.5, pe_pb: 22.5, market_cap: 50, eps: 0, roe: 15, gross_margin: 30, op_margin: 10, debt_ratio: 50, current_ratio: 1.5, quality_score: 5, z_score: 2.99, magic_roc: 15, magic_ey: 8, margin_usage: 5, short_ratio: 10, margin_chg: 0 };
 
 function initScreener() {
   const F = state.config.screener_fields;
   const groups = {};
   Object.entries(F).forEach(([k, f]) => (groups[f.group] ||= []).push([k, f]));
-  $('#sc-fields').innerHTML = Object.entries(groups).map(([g, items]) => `<div class="fgroup"><div class="fgroup-title">${g}面${items.some(([, f]) => f.window) ? '（N = 統計天數）' : '（上市，證交所最新公布）'}</div>
+  $('#sc-fields').innerHTML = Object.entries(groups).map(([g, items]) => `<div class="fgroup"><div class="fgroup-title">${g}面${items.some(([, f]) => f.window) ? '（N = 統計天數）' : g === '財報' ? '（上市一般業，最新一季，申報期間部分公司尚無資料）' : '（上市，證交所最新公布）'}</div>
     ${items.map(([k, f]) => `<div class="frow off" data-field="${k}">
       <label class="check"><input type="checkbox" data-on> ${f.label}</label>
       <select data-op>${SC_OPS.map((o) => `<option value="${o}">${SC_OP_LABEL[o]}</option>`).join('')}</select>
