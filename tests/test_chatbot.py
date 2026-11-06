@@ -172,7 +172,7 @@ def test_llm_failures_fall_back(monkeypatch):
     monkeypatch.setenv("TWSTOCK_LLM_PROVIDER", "groq")
     monkeypatch.setenv("TWSTOCK_LLM_API_KEY", "gsk_test")
     monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: FakeResp(429))
-    assert chatbot.reply("隨便聊聊", "C1") in chatbot.GENERIC and "429" in chatbot.status["llm_error"]
+    assert chatbot.reply("隨便聊聊", "C1") in chatbot.GENERIC and "429" in chatbot.status["llm_error"]  # 兩個模型都滿
     monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: FakeResp(content="你這個白癡"))
     assert chatbot.reply("隨便聊聊", "C2") in chatbot.GENERIC and "不適當" in chatbot.status["llm_error"]
     # 開源模型失敗時，有 Claude 金鑰就改用 Claude
@@ -249,9 +249,13 @@ def test_model_fallback_chain(monkeypatch):
     monkeypatch.setattr(chatbot.requests, "post", post)
     assert chatbot.reply("隨便聊聊", "C1") == "備用模型回覆"
     assert tried == ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"] and chatbot.status["last_source"] == "groq:openai/gpt-oss-120b"
-    tried.clear()  # 429（額度用完）不換模型，直接用句庫
-    monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: tried.append(1) or FakeResp(429))
-    assert chatbot.reply("隨便聊聊", "C2") in chatbot.GENERIC and tried == [1]
+    tried.clear()  # 429（這個模型的流量滿了）→ 換下一個模型；全部都滿才用句庫
+    monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: tried.append(kw["json"]["model"]) or FakeResp(429))
+    assert chatbot.reply("隨便聊聊", "C2") in chatbot.GENERIC and tried == ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
+    tried.clear()  # 401（金鑰錯）不換模型
+    monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: tried.append(1) or FakeResp(401))
+    chatbot.reply("隨便聊聊", "C4")
+    assert tried == [1]
     bodies = []  # gpt-oss 帶 reasoning_effort
     monkeypatch.setenv("TWSTOCK_LLM_MODEL", "openai/gpt-oss-20b")
     monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: bodies.append(kw["json"]) or FakeResp())
