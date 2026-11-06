@@ -118,6 +118,8 @@ def fetch_yahoo(code: str, start: date, end: date) -> pd.DataFrame:
                 return df
         except Exception as e:  # noqa: BLE001 - try next symbol / source
             last_err = e
+    if isinstance(last_err, (requests.ConnectionError, requests.Timeout)):
+        raise last_err  # 網路問題：讓呼叫端知道是連線失敗，而不是查無此股
     raise DataError(f"Yahoo 查無資料：{code} ({last_err})")
 
 
@@ -240,6 +242,7 @@ def get_history(code: str, years: float = 3, source: str | None = None, use_cach
         raise DataError(f"未知的資料來源：{source}")
     fetchers = {"yahoo": fetch_yahoo, "twse": fetch_twse}
     errors = []
+    network_failures = 0
     global _offline_until
     if source == "auto" and time.time() < _offline_until:
         order = []  # 近期連線全數失敗，暫時直接使用示範資料
@@ -248,11 +251,15 @@ def get_history(code: str, years: float = 3, source: str | None = None, use_cach
             df = fetchers[name](code, start, end)
             _write_cache(code, df, name)
             return PriceData(code, stock_name(code), name, df)
-        except Exception as e:  # noqa: BLE001
+        except DataError as e:  # 查無此股：資料來源正常，只是沒有這檔
             errors.append(f"{name}: {e}")
+        except Exception as e:  # noqa: BLE001 - 連線失敗、被封鎖等
+            errors.append(f"{name}: {e}")
+            network_failures += 1
 
     if source == "auto":
-        if errors:
+        # 只有「所有來源都是連線失敗」才視為離線；查無此股不能讓整個網站切到示範資料
+        if order and network_failures == len(order):
             _offline_until = time.time() + 300
         return PriceData(code, stock_name(code), "demo", demo_data(code, start, end))
     raise DataError("; ".join(errors))

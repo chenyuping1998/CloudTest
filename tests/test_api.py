@@ -101,3 +101,25 @@ def test_index_busts_asset_cache():
     r = client.get("/")
     assert r.status_code == 200 and r.headers["cache-control"] == "no-cache"
     assert f"/static/app.js?v={ASSET_VERSION}" in r.text and f"/static/style.css?v={ASSET_VERSION}" in r.text
+
+
+
+def test_unknown_code_does_not_put_site_offline(monkeypatch):
+    """查無此股（DataError）不能讓整個網站切到示範資料；只有連線失敗才算離線。"""
+    import requests
+    from twstock import data as D
+
+    def not_found(code, start, end):
+        raise D.DataError("查無資料")
+
+    def down(code, start, end):
+        raise requests.ConnectionError("down")
+    monkeypatch.setattr(D, "_offline_until", 0.0)
+    monkeypatch.setattr(D, "fetch_yahoo", not_found)
+    monkeypatch.setattr(D, "fetch_twse", not_found)
+    assert D.get_history("2400", source="auto", use_cache=False).source == "demo"
+    assert D._offline_until == 0.0
+    monkeypatch.setattr(D, "fetch_yahoo", down)
+    monkeypatch.setattr(D, "fetch_twse", down)
+    D.get_history("2330", source="auto", use_cache=False)
+    assert D._offline_until > 0

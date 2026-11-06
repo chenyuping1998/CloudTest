@@ -32,6 +32,8 @@ def test_find_stocks_ignores_prices():
     assert chatbot.find_stocks("發哥最近怎樣") == ["2454"]
     assert chatbot.find_stocks("大盤漲到 23000 點了") == ["0050"]
     assert chatbot.find_stocks("今天晚餐吃什麼") == []
+    assert chatbot.find_stocks("我在 2400 買了台積電") == ["2330"]
+    assert chatbot.find_stocks("成本 950 的 2454 怎麼辦") == ["2454"]
 
 
 def test_canned_reply_without_api_key():
@@ -51,7 +53,7 @@ def test_ai_reply_uses_data_and_fallbacks(monkeypatch):
     assert call["output_config"] == {"effort": "low"} and "thinking" not in call
     prompt = call["messages"][0]["content"]
     assert "<資料>" in prompt and "台積電（2330）" in prompt and "多空分數" in prompt
-    assert "毒舌" in call["system"]
+    assert "不要預設對方的狀況" in call["system"] and "80 字以內" in call["system"]
 
 
 def test_other_model_skips_fallbacks(monkeypatch):
@@ -255,3 +257,15 @@ def test_model_fallback_chain(monkeypatch):
     monkeypatch.setattr(chatbot.requests, "post", lambda url, **kw: bodies.append(kw["json"]) or FakeResp())
     chatbot.reply("隨便聊聊", "C3")
     assert bodies[0]["reasoning_effort"] == "low" and bodies[0]["max_tokens"] >= 1000
+
+
+
+def test_library_does_not_presume_user_is_trapped():
+    """句庫不能預設提問者有持股、被套或賠錢（除非他自己說）。"""
+    presumptive = ("你的帳戶", "你那堆", "套牢股", "你的投資組合", "賠了別哭")
+    neutral_pools = [r for n, _, r in chatbot.INTENTS if n not in ("trapped",)] + [
+        chatbot.GENERIC, chatbot.CHEERS, chatbot.GLOOMS, chatbot.MEH, chatbot.EMPTY, chatbot.BUY_DIP, chatbot.BUY_CHASE]
+    for pool in neutral_pools:
+        for line in pool:
+            assert not any(p in line for p in presumptive), line
+    assert "賠了別哭" not in chatbot.FOOTER
